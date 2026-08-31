@@ -1,0 +1,66 @@
+name: Build App (APK + IPA unsigned)
+
+# Build Android APK và iOS IPA (KHÔNG ký — dùng cho TrollStore) trên cloud.
+# KHÔNG cần Xcode/JDK ở máy bạn.
+# Chạy: GitHub -> tab Actions -> "Build App (APK + IPA unsigned)" -> Run workflow.
+# Tải file ở mục "Artifacts" cuối trang run.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  # ------------------------- ANDROID -------------------------
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - uses: actions/setup-java@v4
+        with: { distribution: "temurin", java-version: "17" }
+      - run: |
+          npm ci || npm install
+          npx cap sync android
+      - run: cd android && chmod +x gradlew && ./gradlew assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BanGiaoLy-APK
+          path: android/app/build/outputs/apk/debug/*.apk
+
+  # --------------------- iOS (IPA unsigned) ---------------------
+  ios:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - name: Cài deps + đồng bộ web
+        run: |
+          npm ci || npm install
+          npx cap sync ios
+      - name: pod install
+        run: cd ios/App && pod install
+      - name: Build .app cho iPhone (device, KHÔNG ký)
+        run: |
+          cd ios/App
+          xcodebuild -workspace App.xcworkspace -scheme App \
+            -configuration Release -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES build
+      - name: Đóng gói IPA unsigned (cho TrollStore)
+        run: |
+          cd ios/App
+          APP=$(find build -type d -name "App.app" -path "*iphoneos*" | head -1)
+          echo "APP=$APP"
+          if [ -z "$APP" ]; then echo "Không tìm thấy App.app"; exit 1; fi
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry BanGiaoLy-unsigned.ipa Payload
+          ls -lah BanGiaoLy-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BanGiaoLy-IPA-unsigned
+          path: ios/App/BanGiaoLy-unsigned.ipa

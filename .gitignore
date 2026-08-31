@@ -1,0 +1,17 @@
+# deps & build
+node_modules/
+dist/
+# Android
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/.idea/
+# iOS
+ios/App/Pods/
+ios/App/build/
+ios/App/build_device/
+ios/DerivedData/
+# misc
+.DS_Store
+*.log

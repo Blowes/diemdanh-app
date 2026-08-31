@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Ban Giáo Lý</string>
+    <string name="title_activity_main">Ban Giáo Lý</string>
+    <string name="package_name">com.bglmautam.app</string>
+    <string name="custom_url_scheme">com.bglmautam.app</string>
+</resources>
