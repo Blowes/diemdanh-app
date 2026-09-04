@@ -40,4 +40,6 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Lưu ảnh/video vào Thư viện trên Android 9 trở xuống (Android 10+ dùng MediaStore, không cần quyền) -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 </manifest>

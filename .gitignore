@@ -15,3 +15,6 @@ ios/DerivedData/
 # misc
 .DS_Store
 *.log
+# khoá ký release (KHÔNG commit)
+android/keystore/
+android/keystore.properties

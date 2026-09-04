@@ -103,6 +103,20 @@ const BGL = {
   // Lấy điểm danh 1 lớp trong khoảng ngày (attendable_type mặc định Enrollment)
   attendancesByClass: (classroomId, date) =>
     GET("v1/attendances", { classroom_id: classroomId, start_date: date, end_date: date, per_page: 500 }).then(d),
+  // Toàn bộ điểm danh của lớp trong 1 khoảng ngày (tự lật trang theo meta) — dùng cho Chuỗi học
+  attendancesRange: async (classroomId, start, end) => {
+    const out = []; let page = 1;
+    for (;;) {
+      const r = await GET("v1/attendances", { classroom_id: classroomId, start_date: start, end_date: end, per_page: 1000, page });
+      const arr = d(r); if (Array.isArray(arr)) out.push(...arr);
+      const m = (r && r.meta) || {};
+      const total = Number(m.total_count) || 0, pages = Number(m.total_pages) || 0;
+      if (!Array.isArray(arr) || !arr.length || !pages || page >= pages || (total && out.length >= total)) break;
+      if (page >= 60) { out.truncated = true; break; }   // an toàn: đánh dấu thiếu thay vì im lặng
+      page++;
+    }
+    return out;
+  },
   attendancesFor: (type, id, dateGteq, dateLteq) =>
     GET("v1/attendances", {
       filters: { attendable_type_eq: type, attendable_id_eq: id, date_gteq: dateGteq, date_lteq: dateLteq },

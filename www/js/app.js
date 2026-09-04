@@ -1,13 +1,15 @@
 // ============================================================
-//  Ban Giáo Lý — app native (Android + iOS)
-//  UX app-first: bottom nav, dashboard, điểm danh QUẸT (Tinder) + CỘT
+//  Điểm Danh (Ban Giáo Lý) — app native (Android + iOS)
+//  UX app-first: bottom nav, dashboard, điểm danh QUẸT (Tinder) + CỘT,
+//  xuất bảng điểm danh (ảnh), chuỗi học, thông báo trong app
 // ============================================================
 const root = document.getElementById("root");
 const $ = (id) => document.getElementById(id);
 const esc = (s) => (s == null ? "" : String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])));
 // Bỏ dấu tiếng Việt để tìm kiếm không phân biệt dấu ("tu" khớp "Tú")
 const noAccent = (s) => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase().trim();
-const store = { get: (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+const store = { get: (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } } };
+const QUOTA_MSG = "Bộ nhớ máy đầy — không lưu được. Xoá bớt ảnh thiếu nhi trong Tôi → Tiện ích → Xoá dữ liệu.";
 
 // ---------- trạng thái điểm danh ----------
 const STATUSES = [
@@ -76,17 +78,26 @@ function todaySunday() { const d = new Date(); const g = d.getDay(); if (g !== 0
 const WD = ["Chúa Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
 function weekdayVN(iso) { const d = iso ? new Date(iso + "T00:00:00") : new Date(); return WD[d.getDay()]; }
 function isSundayToday() { return new Date().getDay() === 0; }
-// Tất cả Chúa Nhật trong niên khóa hiện tại
-function academicSundays() {
-  const y = S.year; if (!y || !y.start_date || !y.end_date) return [];
-  const out = []; const d = new Date(y.start_date + "T00:00:00"), end = new Date(y.end_date + "T00:00:00");
+// Khoảng ngày niên khóa của MỘT LỚP: lớp năm cũ dùng năm của lớp (không lấy niên khóa hiện tại)
+function classYearRange(c) {
+  const cy = c && c.year != null && !isNaN(Number(c.year)) ? Number(c.year) : null, y = S.year;
+  if (y && y.start_date && y.end_date && (cy == null || cy === Number(y.year))) return { start: y.start_date, end: y.end_date, long: y.long_year, year: Number(y.year), current: true };
+  // năm học hiện tại suy từ hôm nay (bắt đầu ~tháng 8) — dùng khi API niên khóa lỗi
+  const now = new Date(), Y = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
+  if (cy != null) return { start: `${cy}-08-20`, end: `${cy + 1}-06-20`, long: (c && c.long_year) || `${cy} - ${cy + 1}`, year: cy, current: !y && cy === Y };
+  return { start: `${Y}-08-20`, end: `${Y + 1}-06-20`, long: `${Y} - ${Y + 1}`, year: Y, current: true };
+}
+// Tất cả Chúa Nhật trong 1 khoảng niên khóa (mặc định: niên khóa hiện tại)
+function academicSundays(range) {
+  const r = range || classYearRange(null); if (!r) return [];
+  const out = []; const d = new Date(r.start + "T00:00:00"), end = new Date(r.end + "T00:00:00");
   while (d.getDay() !== 0) d.setDate(d.getDate() + 1); // Chúa Nhật đầu tiên
   while (d <= end) { out.push(toISO(d)); d.setDate(d.getDate() + 7); }
   return out;
 }
-// Chúa Nhật của tuần hiện tại, kẹp vào danh sách niên khóa (gần hôm nay nhất)
-function defaultSunday() {
-  const list = academicSundays();
+// Chúa Nhật gần hôm nay nhất trong niên khóa (lớp năm cũ -> Chúa Nhật cuối của năm đó)
+function defaultSunday(range) {
+  const list = academicSundays(range);
   if (!list.length) return todaySunday();
   const now = Date.now();
   let best = list[0], bd = Infinity;
@@ -101,10 +112,28 @@ function applyTheme(mode) {
   if (mode === "light" || mode === "dark") r.setAttribute("data-theme", mode);
   else if (window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches) r.classList.add("auto-dark");
   const dark = mode === "dark" || (mode !== "light" && window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches);
-  const m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute("content", dark ? "#0b1512" : "#17544a");
+  const m = document.querySelector('meta[name="theme-color"]');
+  if (m) { let col = ""; try { col = getComputedStyle(r).getPropertyValue(dark ? "--bg" : "--brand").trim(); } catch {} m.setAttribute("content", col || (dark ? "#20262D" : "#17544a")); }
 }
 const themeMode = () => store.get("bgl-theme", "system");
-applyTheme(themeMode());
+// ---------- màu chủ đạo theo LỚP ĐANG DẠY (màu khăn) ----------
+const CLASS_THEME_NAMES = { pink: "Khai Tâm", green: "Rước Lễ", blue: "Thêm Sức", gold: "Bao Đồng" };
+function classThemeKey(c) {
+  const t = noAccent((c && (c.family || c.name)) || "");
+  if (t.includes("khai tam") || t.includes("chien con")) return "pink";
+  if (t.includes("ruoc le")) return "green";
+  if (t.includes("them suc")) return "blue";
+  if (t.includes("bao dong")) return "gold";
+  return "";
+}
+function applyClassTheme(key, persist) {
+  const r = document.documentElement;
+  if (key) r.setAttribute("data-class", key); else r.removeAttribute("data-class");
+  if (persist) store.set("bgl-class-theme", key || "");
+  applyTheme(themeMode());
+}
+const currentClassTheme = () => document.documentElement.getAttribute("data-class") || "";
+applyClassTheme(store.get("bgl-class-theme", ""), false);   // trước đăng nhập: dùng màu lớp lần trước
 if (window.matchMedia) matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => applyTheme(themeMode()));
 
 // ---------- hiệu ứng động (mặc định BẬT) ----------
@@ -162,6 +191,11 @@ const IC = {
   trash: '<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/>',
   bug: '<path d="M8 8a4 4 0 0 1 8 0M6 12h12M12 8v10M6 12a6 6 0 0 0 12 0M4.5 8.5l2 1.5M19.5 8.5l-2 1.5M3.5 16l2.5-1M20.5 16l-2.5-1M4.5 20l2-2M19.5 20l-2-2"/>',
   copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/>',
+  bell: '<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.6 2.2H4.4z"/><path d="M10 21a2 2 0 0 0 4 0"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16.5l-5.2-5.2L7 20"/>',
+  share: '<path d="M12 3v12M7.5 7.5 12 3l4.5 4.5"/><path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>',
+  fire: '<path d="M12 22c4.4 0 7-2.8 7-6.6 0-3-1.7-5.2-3.4-7.1-.3 1.6-1.2 2.6-2.3 3.2.3-3.6-1.2-6.6-4.3-8.5.2 3.1-1.3 4.7-2.9 6.4C4.7 10.9 5 12.5 5 15.4 5 19.2 7.6 22 12 22z"/>',
+  sparkle: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/>',
 };
 const ic = (n, w = 24) => `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${IC[n] || ""}</svg>`;
 
@@ -187,22 +221,38 @@ function phoneChip(num, who) { if (!num || num === "—" || num === "-") return 
 window.openExternal = openExternal; window.phoneSheet = phoneSheet;
 
 // ---------- chrome ----------
-function appbar({ title, sub, back, action } = {}) {
+function appbar({ title, sub, back, action, bell } = {}) {
   return `<div class="appbar"><div class="appbar-in">
     ${back ? `<button class="back" onclick="${typeof back === "string" ? `go('${back}')` : "history.back()"}">${ic("back", 20)}</button>` : ""}
     <div style="flex:1;min-width:0">
       <h1 style="flex:none">${esc(title || "")}</h1>
       ${sub ? `<div class="muted trunc" style="font-size:12.5px;margin-top:1px">${esc(sub)}</div>` : ""}
     </div>
+    ${bell ? bellBtn() : ""}
     ${action || ""}
   </div></div>`;
+}
+// Chuông thông báo (góc phải appbar) + badge số chưa đọc
+function bellBtn() {
+  const n = Notif.unread(); _bellLast = n;
+  return `<button class="act bell ${n ? "has" : ""}" onclick="notifSheet()" aria-label="Thông báo">${ic("bell", 20)}<span class="badge" id="bellBadge" ${n ? "" : "hidden"}>${n > 99 ? "99+" : n}</span></button>`;
+}
+let _bellLast = -1;
+function refreshBell() {
+  const b = $("bellBadge"); if (!b) return;
+  const n = Notif.unread(); b.hidden = !n; b.textContent = n > 99 ? "99+" : n;
+  const btn = b.parentElement;
+  if (btn) { btn.classList.toggle("has", n > 0); if (_bellLast >= 0 && n > _bellLast) { btn.classList.remove("ring"); void btn.offsetWidth; btn.classList.add("ring"); setTimeout(() => btn.classList.remove("ring"), 1300); } }
+  _bellLast = n;
 }
 function bottomNav(active) {
   const items = [["home", "Trang chủ", "#/home", "home"], ["book", "Lớp học", "#/classes", "classes"], ["users", "Giáo lý viên", "#/teachers", "teachers"], ["user", "Tôi", "#/me", "me"]];
   return `<nav class="nav">${items.map(([i, l, h, k]) => `<a class="${active === k ? "on" : ""}" onclick="go('${h}')">${ic(i)}<span>${l}</span></a>`).join("")}</nav>`;
 }
 function paint(html, navKey) { root.innerHTML = html + (navKey !== false ? bottomNav(navKey) : ""); const m = root.querySelector("main"); if (m) m.classList.add("fade-in"); }
-function screen(html, navKey) { paint(html, navKey); progDone(); }
+function hideBoot() { const b = $("boot"); if (!b) return; b.classList.add("out"); setTimeout(() => b.remove(), 420); }
+setTimeout(hideBoot, 12000);  // phòng hờ: không để kẹt màn khởi động
+function screen(html, navKey) { paint(html, navKey); progDone(); hideBoot(); }
 function skelCard() { return `<div class="card pad"><div class="row"><div class="skel" style="width:46px;height:46px;border-radius:14px"></div><div class="grow"><div class="skel" style="height:11px;width:38%;margin-bottom:9px"></div><div class="skel" style="height:16px;width:66%"></div></div></div><div class="skel" style="height:58px;margin-top:14px"></div></div>`; }
 function loading(navKey) { progStart(); paint(appbar({}) + `<main><div class="wrap stack">${skelCard()}${skelCard()}${skelCard()}</div></main>`, navKey); }
 function haptic(ms = 12) { if (effectsOn() && navigator.vibrate) { try { navigator.vibrate(ms); } catch {} } }
@@ -210,10 +260,66 @@ function emptyBox(icon, msg, sub) { return `<div class="empty"><div class="big">
 function errBox(msg) { return `<div class="empty"><div class="big">⚠️</div><div>${esc(msg)}</div><div style="margin-top:16px"><button class="btn sm ghost" onclick="render()">Thử lại</button></div></div>`; }
 
 // ---------- sheet ----------
-function openSheet(html) { $("sheetHost").innerHTML = `<div class="sheet" id="sheet"><div class="grip"></div>${html}</div>`; requestAnimationFrame(() => { $("sheet").classList.add("on"); $("scrim").classList.add("on"); }); }
-function closeSheet() { const s = $("sheet"); if (s) s.classList.remove("on"); $("scrim").classList.remove("on"); setTimeout(() => { $("sheetHost").innerHTML = ""; }, 260); }
+let _sheetT = null;
+function openSheet(html) { clearTimeout(_sheetT); $("sheetHost").innerHTML = `<div class="sheet" id="sheet"><div class="grip"></div>${html}</div>`; requestAnimationFrame(() => { const sh = $("sheet"); if (sh) sh.classList.add("on"); $("scrim").classList.add("on"); }); }
+function closeSheet() { const s = $("sheet"); if (s) s.classList.remove("on"); $("scrim").classList.remove("on"); clearTimeout(_sheetT); _sheetT = setTimeout(() => { $("sheetHost").innerHTML = ""; }, 260); }
 $("scrim").addEventListener("click", closeSheet);
 window.closeSheet = closeSheet; window.go = go; window.render = render;
+
+// ============================================================
+//  THÔNG BÁO TRONG APP (lưu trên máy, theo tài khoản)
+//  kind: confirm | error | streak | lost | info — href: nơi cần đến khi bấm
+// ============================================================
+const Notif = {
+  key() { return "bgl-notifs-" + ((S.user && S.user.id) || "x"); },
+  all() { const a = store.get(this.key(), []); return Array.isArray(a) ? a : []; },
+  save(list) { if (!store.set(this.key(), list.slice(0, 100))) { if (!this._warned) { this._warned = true; toast(QUOTA_MSG, 3200); } } refreshBell(); },
+  unread() { return this.all().filter((n) => !n.read).length; },
+  add(n) {
+    const list = this.all(), now = Date.now();
+    // chống trùng: cùng loại + cùng tiêu đề + cùng đích trong 2 phút -> thay bản cũ
+    const dup = list.findIndex((x) => x.kind === n.kind && x.href === n.href && x.title === n.title && now - x.t < 120000);
+    if (dup >= 0) list.splice(dup, 1);
+    list.unshift({ id: now.toString(36) + Math.random().toString(36).slice(2, 6), t: now, read: false, kind: n.kind || "info", title: n.title || "", body: n.body || "", href: n.href || "" });
+    this.save(list);
+  },
+  markRead(id) { const l = this.all(), x = l.find((n) => n.id === id); if (x && !x.read) { x.read = true; this.save(l); } },
+  readAll() { this.save(this.all().map((n) => Object.assign(n, { read: true }))); },
+  clear() { this.save([]); },
+};
+const NK = { confirm: ["check", "var(--present-t)", "var(--present-b)"], error: ["bug", "var(--unexcused-t)", "var(--unexcused-b)"], streak: ["fire", "var(--gold-2)", "var(--gold-soft)"], lost: ["fire", "var(--unexcused-t)", "var(--unexcused-b)"], info: ["bell", "var(--ink-soft)", "var(--surface-2)"] };
+function fmtWhen(t) {
+  const d = new Date(t), now = new Date(), hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const day = toISO(d), y = new Date(now); y.setDate(y.getDate() - 1);
+  return day === toISO(now) ? `Hôm nay · ${hm}` : day === toISO(y) ? `Hôm qua · ${hm}` : `${fmtDate(day)} · ${hm}`;
+}
+function notifSheet() {
+  const list = Notif.all();
+  const rows = list.map((n) => {
+    const [icn, col, bg] = NK[n.kind] || NK.info;
+    return `<button class="ntf ${n.read ? "" : "unread"}" onclick="openNotif('${n.id}')">
+      <span class="ntf-ic" style="color:${col};background:${bg}">${ic(icn, 18)}</span>
+      <div class="grow"><div class="ntf-t">${esc(n.title)}</div>${n.body ? `<div class="ntf-b">${esc(n.body)}</div>` : ""}<div class="ntf-w">${fmtWhen(n.t)}</div></div>
+      ${n.href ? `<span class="list-arrow">${ic("chev", 16)}</span>` : ""}</button>`;
+  }).join("");
+  const unread = Notif.unread();
+  openSheet(`<h3 style="margin-bottom:${list.length ? 10 : 14}px">Thông báo${unread ? ` <span class="chip st-late" style="vertical-align:3px;padding:3px 8px">${unread} mới</span>` : ""}</h3>
+    ${list.length ? `<div class="ntf-actions">${unread ? `<button class="btn ghost sm" onclick="Notif.readAll();notifSheet()">${ic("check", 14)} Đã đọc hết</button>` : ""}
+      <button class="btn ghost sm" id="ntfClear" style="color:var(--danger)" onclick="clearNotifs()">${ic("trash", 14)} Xoá tất cả</button></div>` : ""}
+    <div class="card divlist" style="overflow:hidden;max-height:62vh;overflow-y:auto">${rows || `<div class="empty" style="padding:36px 20px"><div class="big">🔔</div><div style="font-weight:600;color:var(--ink)">Chưa có thông báo</div><div style="margin-top:6px;font-size:13.5px">Lưu điểm danh xong, đạt hoặc mất chuỗi học… sẽ báo ở đây.</div></div>`}</div>`);
+}
+function clearNotifs() {
+  const b = $("ntfClear");
+  if (b && !b.dataset.arm) { b.dataset.arm = "1"; b.innerHTML = `${ic("trash", 14)} Chắc chắn xoá?`; b.style.background = "var(--danger)"; b.style.color = "#fff"; b.style.borderColor = "var(--danger)"; setTimeout(() => { const x = $("ntfClear"); if (x && x.dataset.arm) notifSheet(); }, 3000); return; }
+  Notif.clear(); toast("Đã xoá tất cả thông báo"); notifSheet();
+}
+function openNotif(id) {
+  const n = Notif.all().find((x) => x.id === id); Notif.markRead(id);
+  if (!n || !n.href) { notifSheet(); return; }
+  closeSheet();
+  if (location.hash === n.href) render(); else go(n.href);
+}
+window.Notif = Notif; window.notifSheet = notifSheet; window.clearNotifs = clearNotifs; window.openNotif = openNotif;
 
 // ============================================================
 //  LOGIN
@@ -228,7 +334,7 @@ function loginScreen(msg, msgType) {
     <div class="wrap" style="max-width:420px;margin:0 auto;padding-top:6vh;position:relative;z-index:2">
     <div style="text-align:center;margin-bottom:22px">
       <div class="logo-glow"><img src="assets/logo.png" alt=""/></div>
-      <div class="eyebrow" style="margin-top:6px">Giáo xứ · Ban Giáo Lý</div>
+      <div class="eyebrow" style="margin-top:6px">Ban Giáo Lý · Điểm Danh</div>
       <h1 class="disp" style="font-size:30px;margin:6px 0 0">Chào mừng trở lại</h1>
       <p class="muted" style="margin:6px 0 0">Đăng nhập để điểm danh &amp; quản lý lớp</p>
     </div>
@@ -241,7 +347,7 @@ function loginScreen(msg, msgType) {
     <button class="btn" id="loginBtn" style="margin-top:18px">Đăng nhập</button>
     <button class="bio" id="bioBtn" hidden onclick="bioLogin()">${ic("finger", 20)} Đăng nhập bằng vân tay / FaceID</button>
   </div></main>`, false);
-  progDone();
+  progDone(); hideBoot();
   if (effectsOn()) makeSparkles($("sparkles"));
   if (msg) showAuth(msg, msgType);
   $("loginBtn").onclick = () => doLogin();
@@ -267,7 +373,7 @@ async function doLogin() {
 async function bioLogin() {
   const B = window.Capacitor?.Plugins?.NativeBiometric, cred = store.get("bgl-cred", null);
   if (!B || !cred) return;
-  try { await B.verifyIdentity({ reason: "Đăng nhập Ban Giáo Lý", title: "Xác thực", subtitle: "", description: "" }); $("u").value = cred.u; $("p").value = cred.p; doLogin(); }
+  try { await B.verifyIdentity({ reason: "Đăng nhập Điểm Danh", title: "Xác thực", subtitle: "", description: "" }); $("u").value = cred.u; $("p").value = cred.p; doLogin(); }
   catch { showAuth("Xác thực sinh trắc học thất bại.", "err"); }
 }
 window.doLogin = doLogin; window.bioLogin = bioLogin;
@@ -301,7 +407,7 @@ async function homeScreen() {
        <div class="stack">${myAssign.map((t) => classRowCard(t.classroom, t.position, true)).join("")}</div>`
     : `<div class="sec-eyebrow"><span class="eyebrow">Bắt đầu</span></div>
        <div class="card pad"><div class="muted">Bạn chưa được phân công lớp trong niên khóa này. Mở <a class="link" onclick="go('#/classes')">Lớp học</a> để xem tất cả.</div></div>`;
-  screen(appbar({ title: "Trang chủ", action: `<button class="act" onclick="go('#/search')">${ic("search", 20)}</button>` }) +
+  screen(appbar({ title: "Trang chủ", bell: true, action: `<button class="act" onclick="go('#/search')">${ic("search", 20)}</button>` }) +
     `<main><div class="wrap stack">${hero}
       <div class="row" style="gap:10px">
         <button class="btn press" onclick="go('#/classes')">${ic("book", 18)} Các lớp</button>
@@ -335,7 +441,7 @@ async function classesScreen() {
   try {
     const list = await BGL.classrooms(S.year && S.year.year);
     S._classes = list;
-    screen(appbar({ title: "Lớp học", action: `<button class="act" onclick="go('#/search')">${ic("search", 20)}</button>` }) +
+    screen(appbar({ title: "Lớp học", bell: true, action: `<button class="act" onclick="go('#/search')">${ic("search", 20)}</button>` }) +
       `<main><div class="wrap">
         <input id="clsq" class="input" placeholder="Lọc theo tên lớp…" oninput="filterClasses(this.value)" style="margin:2px 0 14px"/>
         <div class="stack" id="clsList">${list.map((c) => classRowCard(c)).join("")}</div>
@@ -353,36 +459,45 @@ window.filterClasses = filterClasses;
 //  CLASS DETAIL
 // ============================================================
 const CX = {};
-async function classScreen(id, tab) {
+async function classScreen(id, tab, extra) {
   tab = tab || "thieunhi";
   loading();
   let c;
   try { c = (CX[id] && CX[id].info) || (CX[id] = CX[id] || {}, CX[id].info = await BGL.classroom(id)); }
   catch (e) { screen(appbar({ title: "Lớp", back: "#/classes" }) + `<main>${errBox(e.message)}</main>`); return; }
   const segs = [["thieunhi", "Thiếu nhi"], ["diemdanh", "Điểm danh"], ["glv", "Giáo lý viên"]];
-  const subInfo = [S.year && S.year.long_year, c.location].filter(Boolean).join(" · ");
-  screen(appbar({ title: c.name, sub: subInfo, back: "#/classes" }) +
+  // Niên khóa hiển thị = niên khóa CỦA LỚP (lớp năm cũ trong Hành trình không còn hiện năm hiện tại)
+  const yr = classYearRange(c), longYear = c.long_year || (yr && yr.long) || "";
+  const subInfo = [longYear, c.location].filter(Boolean).join(" · ");
+  const oldYear = yr && !yr.current;
+  screen(appbar({ title: c.name, sub: subInfo, back: "#/classes", bell: true }) +
     `<main><div class="wrap">
+      ${oldYear ? `<div class="card pad" style="margin-bottom:14px;display:flex;align-items:center;gap:10px;padding:12px 14px;border-color:var(--gold)"><span style="color:var(--gold-2)">${ic("cal", 20)}</span><div><div class="faint" style="font-size:11.5px">Lớp năm cũ</div><div style="font-weight:600">Niên khóa ${esc(longYear)} · dữ liệu lịch sử</div></div></div>` : ""}
       ${c.location ? `<div class="card pad" style="margin-bottom:14px;display:flex;align-items:center;gap:10px;padding:12px 14px"><span style="color:var(--gold-2)">📍</span><div><div class="faint" style="font-size:11.5px">Địa điểm học</div><div style="font-weight:600">${esc(c.location)}</div></div></div>` : ""}
       <div class="seg" style="margin-bottom:16px">${segs.map(([k, l]) => `<button class="${tab === k ? "on" : ""}" onclick="go('#/class/${id}/${k}')">${l}</button>`).join("")}</div>
       <div id="tabBody"><div class="spin"></div></div>
     </div></main>`, "classes");
-  if (tab === "thieunhi") tabStudents(id);
+  if (tab === "thieunhi") tabStudents(id, extra);
   else if (tab === "diemdanh") tabAttendance(id);
   else tabTeachers(id);
 }
 
 // ---------- Tab: Thiếu nhi ----------
-async function tabStudents(id) {
+async function tabStudents(id, focusEid) {
   try {
     const enr = CX[id].enr || (CX[id].enr = await BGL.classroomEnrollments(id));
     const counts = {}; enr.forEach((e) => (counts[e.result] = (counts[e.result] || 0) + 1));
     const summary = `<div class="statgrid" style="margin-bottom:16px">${["Đang Học", "Nghỉ Luôn", "Lên Lớp", "Học Lại", "Chuyển Xứ"].map((k) => statTile(counts[k] || 0, k, STONE[k])).join("")}</div>`;
-    $("tabBody").innerHTML = summary +
+    const body = $("tabBody"); if (!body) return;
+    body.innerHTML = summary +
       `<input id="stuQ" class="input" placeholder="🔍 Tìm tên thiếu nhi…" oninput="filterStudents('${id}',this.value)" value="${esc(CX[id].studentQ || "")}" style="margin:2px 0 14px"/>
        <div class="stack" id="stuList"></div>`;
     renderStudentList(id);
-  } catch (e) { $("tabBody").innerHTML = errBox(e.message); }
+    // Chuỗi học: tải điểm danh cả năm (nền) rồi điền vào ô
+    loadClassAttendance(id).then(() => paintStreaks(id));
+    // Đến từ thông báo -> cuộn tới & làm nổi thẻ thiếu nhi
+    if (focusEid) setTimeout(() => { const el = $("stu-" + focusEid); if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("hl"); setTimeout(() => el.classList.remove("hl"), 2500); } }, 60);
+  } catch (e) { const b = $("tabBody"); if (b) b.innerHTML = errBox(e.message); }
 }
 function renderStudentList(id) {
   const box = $("stuList"); if (!box) return;
@@ -399,7 +514,7 @@ function studentCard(e, cid) {
   const gv = (n) => { const g = (e.grades || []).find((x) => x.name === n); return g && g.value != null && g.value !== "" ? g.value : "—"; };
   const gradeCols = [["Giữa HK 1", "GK 1"], ["Cuối HK 1", "CK 1"], ["Giữa HK 2", "GK 2"], ["Cuối HK 2", "CK 2"]];
   const evalC = e.evaluation && e.evaluation.content;
-  return `<div class="card pad">
+  return `<div class="card pad" id="stu-${e.id}">
     <div class="row">
       ${avatar(p, { tappable: true })}
       <div class="grow"><div class="faint" style="font-size:12px">${esc(p.christian_name || "")}</div>
@@ -417,6 +532,7 @@ function studentCard(e, cid) {
     <div class="eyebrow" style="margin:14px 2px 8px">Chuyên cần</div>
     <div class="statgrid">
       ${["Hiện Diện", "Vắng Lễ", "Có Phép", "Báo Trễ", "Không Phép"].map((k) => statTile(att[k] || 0, k, STONE[k])).join("")}
+      ${streakTile(cid, e.id)}
     </div>
     ${evalC ? `<div class="eyebrow" style="margin:14px 2px 6px">Nhận xét</div><div class="muted" style="font-size:13.5px;line-height:1.5">${esc(evalC)}</div>` : ""}
     <div class="row muted" style="margin-top:14px;font-size:12.5px;gap:16px">
@@ -480,6 +596,459 @@ async function setResult(cid, eid, r) {
 }
 window.resultPicker = resultPicker; window.setResult = setResult;
 
+// ============================================================
+//  CHUỖI HỌC — số buổi học liên tiếp
+//  - Tuần cả lớp KHÔNG có điểm danh = tuần nghỉ -> bỏ qua, không mất chuỗi
+//  - Có thể đánh dấu tay: "Tuần nghỉ cả lớp" hoặc "Bỏ qua ngày này" cho 1 em (khôi phục chuỗi)
+//  - Quy tắc theo trạng thái (cộng / giữ / mất) chỉnh trong Tiện ích
+// ============================================================
+const STREAK_DEF = { "Hiện Diện": "add", "Báo Trễ": "add", "Vắng Lễ": "hold", "Có Phép": "break", "Không Phép": "break", "Nghỉ Luôn": "break" };
+const STREAK_EFF = [["add", "Cộng chuỗi (+1)"], ["hold", "Giữ chuỗi (không cộng)"], ["break", "Mất chuỗi"]];
+const streakRules = () => Object.assign({}, STREAK_DEF, store.get("bgl-streak", {}) || {});
+function streakAdjKey(cid) { return `bgl-streak-adj-${(S.user && S.user.id) || "x"}-${cid}`; }
+function streakAdj(cid) { const a = store.get(streakAdjKey(cid), {}) || {}; return { skip: Array.isArray(a.skip) ? a.skip : [], forgive: a.forgive && typeof a.forgive === "object" ? a.forgive : {} }; }
+function saveStreakAdj(cid, a) { return store.set(streakAdjKey(cid), a); }
+
+// Tải toàn bộ điểm danh của lớp trong niên khóa CỦA LỚP (cache trong RAM)
+function loadClassAttendance(id, force) {
+  const C = (CX[id] = CX[id] || {});
+  if (C.attAll && !force) return Promise.resolve(C.attAll);
+  if (C.attAllP) return C.attAllP;
+  const yr = classYearRange(C.info);
+  C.attAllP = (async () => {
+    try {
+      const recs = await BGL.attendancesRange(id, yr.start, yr.end);
+      const by = {};
+      (recs || []).forEach((r) => { if (!r || !r.date) return; const d = String(r.date).slice(0, 10); (by[d] = by[d] || {})[r.attendable_id] = r.status; });
+      if (C.attPatch) { by[C.attPatch.date] = C.attPatch.day; C.attPatch = null; }   // vừa Xác nhận trong lúc tải -> vá ngày đó
+      C.attAll = { by, range: yr, truncated: !!(recs && recs.truncated) }; C.attErr = false;
+    } catch (e) { C.attErr = true; }                                                     // giữ dữ liệu cũ (nếu có), không cache lỗi
+    finally { C.attAllP = null; }
+    return C.attAll || null;
+  })();
+  return C.attAllP;
+}
+// Tính chuỗi của 1 em: duyệt các ngày đã qua (Chúa Nhật niên khóa + ngày có điểm danh lẻ)
+function computeStreak(cid, eid) {
+  const C = CX[cid] || {}, all = C.attAll; if (!all) return null;
+  const rules = streakRules(), adj = streakAdj(cid), today = toISO(new Date());
+  const days = [...new Set([...academicSundays(all.range).filter((d) => d <= today), ...Object.keys(all.by)])].sort();
+  const forg = adj.forgive[String(eid)] || [];
+  let cur = 0, best = 0, attended = 0; const timeline = [];
+  for (const d of days) {
+    const day = all.by[d] || {}, classHas = Object.keys(day).length > 0, st = day[eid] || "";
+    let eff;
+    if (!classHas || adj.skip.includes(d)) eff = "off";          // tuần nghỉ (tự động hoặc đánh dấu tay)
+    else if (forg.includes(d)) eff = "forgive";                     // bỏ qua cho riêng em này
+    else if (!st) eff = "hold";                                     // lớp có điểm danh nhưng em này chưa được điểm
+    else eff = rules[st] || "break";
+    if (eff === "add") { cur++; attended++; if (cur > best) best = cur; }
+    else if (eff === "break") cur = 0;
+    timeline.push({ d, st, eff });
+  }
+  return { cur, best, attended, timeline, noData: !Object.keys(all.by).length, truncated: !!all.truncated };
+}
+// Cấp độ lửa theo chuỗi (Chúa Nhật): 1-2 nhen lửa · 3 Hiền lành (đỏ) · 5 Ngoan (xanh) · 7 Hy sinh (7 màu) · 10 Dấn thân (7 màu + quầng sáng, cao nhất)
+// Tên cấp theo tinh thần Kinh Thánh: 3 Hiền lành · 5 Ngoan · 7 Hy sinh · 10 Dấn thân (cao nhất)
+const TIERS = [
+  { min: 0, cls: "off", name: "Chưa có lửa", scale: 1 },
+  { min: 1, cls: "lit", name: "Nhen lửa", scale: 1 },
+  { min: 3, cls: "hot", name: "Hiền lành", scale: 1.1 },
+  { min: 5, cls: "blaze", name: "Ngoan", scale: 1.2 },
+  { min: 7, cls: "rainbow", name: "Hy sinh", scale: 1.3 },
+  { min: 10, cls: "rainbow peak", name: "Dấn thân", scale: 1.42 },
+];
+function streakTier(n) { let t = TIERS[0]; for (const x of TIERS) if (n >= x.min) t = x; return t; }
+function nextTier(n) { return TIERS.find((x) => x.min > n) || null; }
+const FLAME_OUT = "M32 2c3 11 15 17 18 33 3 16-7 31-18 43C21 66 10 54 12 37c1-9 8-14 10-22 3 6 6 8 9 8-3-6-2-14 1-21z";
+const FLAME_IN = "M32 38c6 6 10 12 9 21-1 8-5 14-9 19-4-5-9-11-9-19 0-8 4-14 9-21z";
+const RAINBOW = [["0", "#ef4444"], [".2", "#f97316"], [".4", "#facc15"], [".6", "#22c55e"], [".8", "#3b82f6"], ["1", "#a855f7"]];
+let _fid = 0;
+// Đốm lửa kiểu streak: kích cỡ + màu theo cấp, tàn lửa bay từ cấp 3, số buổi nằm trong ngọn lửa
+function flameSVG(n, size, label) {
+  const t = streakTier(n), sz = Math.round(size * t.scale), sm = size < 70, rb = t.min >= 7, id = "rb" + (++_fid);
+  const fs = Math.round(sz * (String(label == null ? n : label).length > 2 ? 0.3 : 0.38));
+  const embers = t.min >= 3 ? `<i class="em e1"></i><i class="em e2"></i>${sm ? "" : '<i class="em e3"></i><i class="em e4"></i>'}` : "";
+  const grad = rb ? `<defs><linearGradient id="${id}" x1="0" y1="1" x2="0" y2="0">${RAINBOW.map(([o, c]) => `<stop offset="${o}" stop-color="${c}"/>`).join("")}</linearGradient></defs>` : "";
+  return `<span class="flame ${t.cls} ${sm ? "sm" : ""}" style="width:${Math.round(sz * 0.82)}px;height:${sz}px">${embers}
+    <svg viewBox="0 0 64 80" aria-hidden="true">${grad}
+      <path class="f-out"${rb ? ` style="fill:url(#${id})"` : ""} d="${FLAME_OUT}"/>
+      <path class="f-in" d="${FLAME_IN}"/>
+    </svg><b class="f-n" style="font-size:${fs}px">${label == null ? n : label}</b></span>`;
+}
+function streakTile(cid, eid) {
+  const s = computeStreak(cid, eid), C = CX[cid] || {};
+  let inner;
+  if (!s && C.attErr) inner = flameSVG(0, 46, "!");
+  else if (!s) inner = `<span class="skel" style="display:inline-block;width:34px;height:44px;border-radius:12px"></span>`;
+  else if (s.noData) inner = flameSVG(0, 46, "—");
+  else inner = flameSVG(s.cur, 46);
+  return `<button class="stat tinted t-fire" id="streak-${eid}" onclick="streakSheet('${cid}',${eid})" title="Chuỗi học" style="padding:6px 10px 8px"><div class="v" style="display:flex;justify-content:center;line-height:0">${inner}</div><div class="k" style="margin-top:2px">Chuỗi học</div></button>`;
+}
+function paintStreaks(id) { ((CX[id] && CX[id].enr) || []).forEach((e) => { const el = $("streak-" + e.id); if (el) el.outerHTML = streakTile(id, e.id); }); }
+
+function streakSheet(cid, eid) {
+  const enr = ((CX[cid] || {}).enr || []).find((x) => x.id === eid); if (!enr) return;
+  const p = enr.person || {}, name = p.name || p.full_name || "", s = computeStreak(cid, eid), C = CX[cid] || {};
+  if (!s) {
+    if (C.attErr && !C.attAllP) {   // tải lỗi -> báo + thử lại (không bịa "tuần nghỉ")
+      openSheet(`<h3>${esc(name)} · Chuỗi học</h3><div class="empty" style="padding:26px"><div class="big">⚠️</div><div style="font-weight:600;color:var(--ink)">Không tải được dữ liệu điểm danh</div><div style="margin-top:6px;font-size:13.5px">Kiểm tra mạng rồi thử lại.</div>
+        <button class="btn sm" style="margin-top:16px" onclick="retryStreak('${cid}',${eid})">${ic("check", 16)} Thử lại</button></div>`);
+      return;
+    }
+    // đang tải: sheet chờ có đánh dấu riêng — chỉ mở lại nếu người dùng vẫn đang chờ đúng sheet này
+    openSheet(`<h3>${esc(name)} · Chuỗi học</h3><div class="empty" id="streakLoading" data-eid="${eid}" style="padding:26px"><div class="spin" style="margin:0 auto 14px"></div>Đang tải dữ liệu điểm danh…</div>`);
+    loadClassAttendance(cid).then(() => { const w = $("streakLoading"); if (w && w.dataset.eid === String(eid)) streakSheet(cid, eid); });
+    return;
+  }
+  const adj = streakAdj(cid);
+  const EFF = { add: ["+1 buổi", "var(--present-t)"], hold: ["giữ chuỗi", "var(--ink-faint)"], break: ["mất chuỗi", "var(--unexcused-t)"], off: ["tuần nghỉ · không tính", "var(--ink-faint)"], forgive: ["bỏ qua · không tính", "var(--excused-t)"] };
+  const today = toISO(new Date());
+  const rows = s.timeline.slice().reverse().map((t) => {
+    const isToday = t.d === today && t.eff === "off" && !adj.skip.includes(t.d);
+    const chip = isToday ? `<span class="chip st-none">Hôm nay</span>`
+      : t.eff === "off" ? `<span class="chip st-none">${adj.skip.includes(t.d) ? "Tuần nghỉ ✓" : "Cả lớp nghỉ"}</span>`
+      : t.st ? `<span class="chip ${stCls(t.st)}"><span class="dot"></span>${t.st}</span>` : `<span class="chip st-none">Chưa điểm</span>`;
+    const [lab, col] = isToday ? ["chưa điểm danh", "var(--ink-faint)"] : EFF[t.eff];
+    return `<div class="tl-row"><div class="grow"><div style="font-weight:600;font-size:13.5px">${weekdayVN(t.d)}, ${fmtDate(t.d)}</div><div style="font-size:11.5px;color:${col}">${lab}</div></div>${chip}<button class="pick" onclick="streakDayMenu('${cid}',${eid},'${t.d}')" aria-label="Tuỳ chọn ngày">${ic("gear", 14)}</button></div>`;
+  }).join("") || `<div class="empty" style="padding:24px;font-size:13.5px">Chưa có buổi học nào trong niên khóa.</div>`;
+  const lastBreak = s.timeline.slice().reverse().find((t) => t.eff === "break");
+  openSheet(`<h3>${esc(name)} · Chuỗi học</h3>
+    <div class="streak-hero">${flameSVG(s.cur, 110)}
+      <div class="cap">${s.cur ? `${s.cur} buổi học liên tiếp · <b style="color:var(--ink)">${streakTier(s.cur).name}</b>` : "Chưa có chuỗi — đi học buổi tới để nhen lửa"}</div>
+      <div class="faint" style="font-size:12px">${(() => { const nx = nextTier(s.cur); return nx ? `Còn ${nx.min - s.cur} buổi nữa lên <b>${nx.name}</b>` : "Đã đạt cấp cao nhất — giữ lửa nhé!"; })()}</div>
+      ${s.cur ? `<button class="btn gold" style="max-width:300px;margin-top:12px" onclick="streakCardSheet('${cid}',${eid})">${ic("sparkle", 18)} Khoe chuỗi · ảnh động chúc mừng</button>` : ""}
+    </div>
+    <div class="statgrid" style="margin-bottom:14px">${statTile(s.best, "Dài nhất", "amber")}${statTile(s.attended, "Buổi có mặt", "green")}${statTile(s.timeline.filter((t) => t.eff === "break").length, "Lần mất chuỗi", "red")}</div>
+    ${lastBreak ? `<button class="btn ghost" style="margin-bottom:12px;color:var(--brand-2)" onclick="streakForgive('${cid}',${eid},'${lastBreak.d}')">${ic("sparkle", 17)} Khôi phục chuỗi (bỏ qua ${fmtDate(lastBreak.d).slice(0, 5)})</button>` : ""}
+    ${s.truncated ? `<div class="authmsg err" style="margin:0 2px 12px">${ic("bug", 16)} Dữ liệu điểm danh quá lớn, chỉ tải được một phần — chuỗi có thể chưa chính xác.</div>` : ""}
+    <p class="muted" style="margin:0 2px 10px;font-size:12.5px;line-height:1.45">Tuần cả lớp không điểm danh được xem là tuần nghỉ, không làm mất chuỗi. Bấm ${ic("gear", 12)} ở từng ngày để bỏ qua cho em này hoặc đánh dấu tuần nghỉ cả lớp.</p>
+    <div class="card divlist" style="overflow:hidden;max-height:42vh;overflow-y:auto">${rows}</div>
+    <button class="btn ghost" style="margin-top:12px" onclick="streakSettingsSheet('${cid}',${eid})">${ic("settings", 17)} Quy tắc tính chuỗi</button>`);
+}
+function streakDayMenu(cid, eid, d) {
+  const adj = streakAdj(cid), isSkip = adj.skip.includes(d), isForg = (adj.forgive[String(eid)] || []).includes(d);
+  openSheet(`<h3>${weekdayVN(d)}, ${fmtDate(d)}</h3>
+    <div class="pickgrid">
+      <button class="pickbtn ${isForg ? "on st-excused" : ""}" style="grid-column:span 2" onclick="streakToggle('${cid}',${eid},'${d}','forgive')"><span class="sw" style="background:var(--excused-t)"></span><span>${isForg ? "Bỏ bỏ-qua · tính lại ngày này" : "Bỏ qua ngày này cho em này"}<br><small class="muted">không cộng, không mất chuỗi</small></span></button>
+      <button class="pickbtn ${isSkip ? "on st-late" : ""}" style="grid-column:span 2" onclick="streakToggle('${cid}',${eid},'${d}','skip')"><span class="sw" style="background:var(--late-t)"></span><span>${isSkip ? "Bỏ đánh dấu tuần nghỉ" : "Tuần nghỉ cả lớp"}<br><small class="muted">không tính cho tất cả thiếu nhi</small></span></button>
+      <button class="pickbtn clear" onclick="streakSheet('${cid}',${eid})">Quay lại</button>
+    </div>`);
+}
+function retryStreak(cid, eid) { CX[cid].attErr = false; loadClassAttendance(cid, true).then(() => { paintStreaks(cid); if ($("sheet")) streakSheet(cid, eid); }); streakSheet(cid, eid); }
+function streakToggle(cid, eid, d, what) {
+  const adj = streakAdj(cid), k = String(eid);
+  if (what === "skip") adj.skip = adj.skip.includes(d) ? adj.skip.filter((x) => x !== d) : [...adj.skip, d].sort();
+  else { const f = adj.forgive[k] || []; const nf = f.includes(d) ? f.filter((x) => x !== d) : [...f, d].sort(); if (nf.length) adj.forgive[k] = nf; else delete adj.forgive[k]; }
+  if (!saveStreakAdj(cid, adj)) return toast(QUOTA_MSG, 3200);
+  haptic(); paintStreaks(cid); streakSheet(cid, eid);
+}
+function streakForgive(cid, eid, d) {
+  const adj = streakAdj(cid), k = String(eid), f = adj.forgive[k] || [];
+  if (!f.includes(d)) f.push(d); adj.forgive[k] = f.sort();
+  if (!saveStreakAdj(cid, adj)) return toast(QUOTA_MSG, 3200);
+  haptic(); paintStreaks(cid); toast("Đã khôi phục chuỗi ✓"); streakSheet(cid, eid);
+}
+function streakSettingsSheet(cid, eid) {
+  const r = streakRules();
+  const row = (st) => `<div class="field" style="margin-bottom:10px"><label><span class="chip ${stCls(st)}" style="padding:3px 9px">${st}</span></label><select class="input" data-st="${st}">${STREAK_EFF.map(([v, l]) => `<option value="${v}" ${r[st] === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>`;
+  const back = cid ? `'${cid}',${eid}` : "";
+  openSheet(`<h3>Quy tắc tính chuỗi</h3><p class="muted" style="margin:-8px 2px 14px;font-size:13px;line-height:1.45">Mỗi trạng thái điểm danh ảnh hưởng chuỗi học thế nào. Quy tắc lưu trên máy này.</p>
+    ${STATUSES.map((x) => row(x.v)).join("")}
+    <button class="btn" style="margin-top:6px" onclick="saveStreakRules(${back})">${ic("check", 18)} Lưu</button>
+    <button class="btn ghost" style="margin-top:10px" onclick="resetStreakRules(${back})">Khôi phục mặc định</button>
+    <div class="sec-eyebrow" style="margin:18px 2px 10px"><span class="eyebrow">Dữ liệu chuỗi học</span></div>
+    <p class="muted" style="margin:0 2px 10px;font-size:12.5px;line-height:1.45">Quy tắc + tuần nghỉ / ngày bỏ qua đã đánh dấu (${streakAdjCount()} lớp). Xuất ra file để chuyển máy hoặc chia sẻ cho GLV cùng lớp, rồi Nhập ở máy kia.</p>
+    <div class="row" style="gap:10px">
+      <button class="btn ghost sm" style="flex:1" onclick="exportStreakData()">${ic("upload", 16)} Xuất dữ liệu chuỗi</button>
+      <button class="btn ghost sm" style="flex:1" onclick="importStreakData(${back})">${ic("download", 16)} Nhập dữ liệu chuỗi</button>
+    </div>`);
+}
+// ---- Xuất / Nhập dữ liệu chuỗi học (quy tắc + điều chỉnh theo lớp) ----
+function streakAdjAll() {
+  const out = {}, pre = `bgl-streak-adj-${(S.user && S.user.id) || "x"}-`;
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf(pre) === 0) { const cid = k.slice(pre.length); const a = store.get(k, null); if (a && ((a.skip && a.skip.length) || (a.forgive && Object.keys(a.forgive).length))) out[cid] = { skip: a.skip || [], forgive: a.forgive || {} }; } } } catch {}
+  return out;
+}
+function streakAdjCount() { return Object.keys(streakAdjAll()).length; }
+async function exportStreakData() {
+  const data = { app: "DiemDanh", type: "streak", version: 1, exportedAt: new Date().toISOString(), userId: (S.user && S.user.id) || null, userName: (S.user && S.user.person_name) || null, rules: streakRules(), adj: streakAdjAll() };
+  const json = JSON.stringify(data, null, 2), fname = `chuoi-hoc-${toISO(new Date())}.json`;
+  const FS = window.Capacitor?.Plugins?.Filesystem, Sh = window.Capacitor?.Plugins?.Share;
+  if (FS && Sh) {
+    try { const w = await FS.writeFile({ path: fname, data: json, directory: "CACHE", encoding: "utf8" }); await Sh.share({ title: "Dữ liệu chuỗi học", text: `Quy tắc + điều chỉnh chuỗi học (${Object.keys(data.adj).length} lớp)`, files: [w.uri], dialogTitle: "Lưu / gửi dữ liệu chuỗi học" }); }
+    catch (e) { if (!/cancel|abort|in progress/i.test(e.message || "")) toast("Lỗi xuất: " + (e.message || e)); }
+  } else {
+    try { const b = new Blob([json], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = fname; a.click(); toast("Đã tạo file tải về"); } catch { toast("Không xuất được trên nền web"); }
+  }
+}
+function importStreakData(cid, eid) {
+  const inp = document.createElement("input"); inp.type = "file"; inp.accept = "application/json,.json";
+  inp.onchange = () => {
+    const file = inp.files && inp.files[0]; if (!file) return;
+    const r = new FileReader();
+    r.onload = () => { try { const n = applyStreakImport(JSON.parse(r.result)); toast(`Đã nhập quy tắc + điều chỉnh chuỗi của ${n} lớp ✓`); if (cid) { paintStreaks(cid); streakSheet(cid, eid); } else streakSettingsSheet(); } catch (e) { toast("File không hợp lệ: " + (e.message || e), 3000); } };
+    r.readAsText(file);
+  };
+  inp.click();
+}
+// Gộp dữ liệu nhập vào máy này (gán cho tài khoản đang đăng nhập); trả về số lớp đã nhập
+function applyStreakImport(d) {
+  if (!d || d.type !== "streak" || !d.rules) throw new Error("không phải file dữ liệu chuỗi học");
+  const rules = {}; STATUSES.forEach((st) => { if (["add", "hold", "break"].includes(d.rules[st.v])) rules[st.v] = d.rules[st.v]; });
+  if (!store.set("bgl-streak", rules)) throw new Error(QUOTA_MSG);
+  let n = 0;
+  Object.keys(d.adj || {}).forEach((cid) => {
+    if (!/^\d+$/.test(cid)) return;
+    const inA = d.adj[cid] || {}, cur = streakAdj(cid);
+    const skip = [...new Set([...cur.skip, ...(Array.isArray(inA.skip) ? inA.skip : [])])].filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x)).sort();
+    const forgive = Object.assign({}, cur.forgive);
+    Object.keys(inA.forgive || {}).forEach((eid) => { const arr = Array.isArray(inA.forgive[eid]) ? inA.forgive[eid].filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x)) : []; if (arr.length) forgive[eid] = [...new Set([...(forgive[eid] || []), ...arr])].sort(); });
+    if (!saveStreakAdj(cid, { skip, forgive })) throw new Error(QUOTA_MSG);
+    if (CX[cid]) paintStreaks(cid);
+    n++;
+  });
+  return n;
+}
+window.exportStreakData = exportStreakData; window.importStreakData = importStreakData; window.applyStreakImport = applyStreakImport;
+
+// ============================================================
+//  KHOE CHUỖI — ảnh chúc mừng (avatar · tên thánh · họ tên · ngọn lửa lớn · số buổi)
+// ============================================================
+const TIER_COL = { off: ["#9ca3af", "#e5e7eb"], lit: ["#f97316", "#fde047"], hot: ["#ef4444", "#fbbf24"], blaze: ["#2563eb", "#a5f3fc"], rainbow: [null, "#fff8d6"], peak: [null, "#fff8d6"] };
+function drawFlame(x, cx, cy, size, tier, n, o) {
+  o = o || {};
+  // ngọn lửa theo path SVG (viewBox 64x80), tâm (cx, cy), cao = size; o.glowK nhân độ sáng, o.sy/o.sk nhấp nháy, o.noNum bỏ số
+  const k = size / 80, out = new Path2D(FLAME_OUT), inn = new Path2D(FLAME_IN);
+  x.save(); x.translate(cx, cy + 40 * k); x.transform(1, 0, o.sk || 0, o.sy || 1, 0, 0); x.translate(-32 * k, -80 * k); x.scale(k, k);
+  const [co, ci] = TIER_COL[tier.cls.split(" ")[0]] || TIER_COL.lit;
+  let fillOut = co;
+  if (!fillOut) { const g = x.createLinearGradient(0, 80, 0, 0); RAINBOW.forEach(([off, c]) => g.addColorStop(+off, c)); fillOut = g; }
+  x.shadowColor = tier.min >= 10 ? "rgba(253,224,71,.9)" : tier.min >= 7 ? "rgba(255,255,255,.7)" : tier.min >= 5 ? "rgba(59,130,246,.8)" : tier.min >= 3 ? "rgba(239,68,68,.7)" : "rgba(249,115,22,.55)";
+  x.shadowBlur = ((tier.min >= 10 ? 46 : tier.min >= 5 ? 30 : 18) * (o.glowK || 1)) / k;
+  x.fillStyle = fillOut; x.fill(out);
+  x.shadowBlur = 0; x.fillStyle = ci; x.fill(inn);
+  x.restore();
+  if (o.noNum) return;
+  drawFlameNumber(x, cx, cy, size, n, o.numScale || 1);
+}
+function drawFlameNumber(x, cx, cy, size, n, sc) {
+  x.save(); x.textAlign = "center"; x.textBaseline = "middle"; x.translate(cx, cy + size * 0.22); x.scale(sc, sc);
+  const fs = Math.round(size * (String(n).length > 2 ? 0.28 : 0.36));
+  x.font = `800 ${fs}px "Bricolage Grotesque", "Be Vietnam Pro", system-ui, sans-serif`;
+  x.lineWidth = Math.max(3, fs * 0.09); x.strokeStyle = "rgba(60,20,0,.7)"; x.lineJoin = "round";
+  x.strokeText(String(n), 0, 0); x.fillStyle = "#fff"; x.fillText(String(n), 0, 0);
+  x.restore();
+}
+// ---- Thẻ chúc mừng ĐỘNG (kiểu TikTok): 0-1.3s tia lửa bay vòng quanh & hội tụ · lửa bùng lên · 1.3s chớp sáng + NỔ confetti · số bật lên · 1.6s+ chữ hiện ----
+const CARD_W = 1080, CARD_H = 1350, CARD_DUR = 3.2, CARD_FX = 540, CARD_FY = 820;
+const CARD_TH = { "": ["#1c6155", "#0b3830"], green: ["#15803d", "#052e16"], pink: ["#be185d", "#4a0a24"], blue: ["#1e40af", "#0b1437"], gold: ["#a16207", "#2a1a04"] };
+const CONF = ["#fde047", "#f97316", "#22c55e", "#3b82f6", "#ec4899", "#a855f7", "#ffffff", "#f43f5e"];
+function prng(seed) { let z = (seed >>> 0) || 1; return () => ((z = (z * 1664525 + 1013904223) >>> 0) / 4294967296); }
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+const easeOutBack = (t) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+async function cardAssets(cid, eid) {
+  const enr = ((CX[cid] || {}).enr || []).find((e) => e.id === eid); if (!enr) throw new Error("Không tìm thấy thiếu nhi");
+  const s = computeStreak(cid, eid); if (!s) throw new Error("Chưa có dữ liệu chuỗi");
+  const p = enr.person || {}, c = CX[cid].info || {}, tier = streakTier(s.cur), key = classThemeKey(c) || currentClassTheme();
+  const FAM = '"Be Vietnam Pro", "Segoe UI", Roboto, system-ui, sans-serif', DISP = '"Bricolage Grotesque", "Be Vietnam Pro", system-ui, sans-serif';
+  try { if (document.fonts && document.fonts.load) await Promise.race([Promise.all([document.fonts.load(`800 60px ${DISP}`), document.fonts.load(`600 30px ${FAM}`), document.fonts.load(`700 22px ${FAM}`)]), new Promise((r) => setTimeout(r, 1500))]); } catch {}
+  const [bg, logo] = await Promise.all([loadImg("assets/bg-login.jpg").catch(() => null), loadImg("assets/logo.png").catch(() => null)]);
+  const ph = photoOf(p.id), photo = ph ? await loadImg(ph).catch(() => null) : null;
+  const rnd = prng(1000 + s.cur * 7 + eid);
+  const orbit = Array.from({ length: 18 }, (_, i) => ({ a0: rnd() * Math.PI * 2, r0: 250 + rnd() * 140, spd: 3 + rnd() * 2, sz: 5 + rnd() * 6, col: CONF[i % CONF.length], dir: rnd() < .5 ? 1 : -1 }));
+  const burst = Array.from({ length: 120 }, () => { const a = rnd() * Math.PI * 2, v = 360 + rnd() * 560; return { vx: Math.cos(a) * v, vy: Math.sin(a) * v - 260, rot: rnd() * Math.PI, rs: (rnd() - .5) * 12, w: 8 + rnd() * 12, h: 5 + rnd() * 6, col: CONF[(rnd() * CONF.length) | 0], round: rnd() < .3 }; });
+  const embers = Array.from({ length: 12 }, () => ({ x0: (rnd() - .5) * 140, dly: rnd() * 1.6, sz: 3 + rnd() * 4, sw: 8 + rnd() * 14 }));
+  const stars = Array.from({ length: 40 }, () => ({ x: rnd() * CARD_W, y: rnd() * CARD_H * .75, r: 1 + rnd() * 2.2, ph: rnd() * 6.28 }));
+  return { p, c, s, tier, TH: CARD_TH[key] || CARD_TH[""], key, bg, photo, logo, FAM, DISP, orbit, burst, embers, stars, name: p.name || p.full_name || "" };
+}
+// Vẽ 1 khung hình của thẻ tại thời điểm t (giây), toạ độ 1080x1350
+function paintCard(x, A, t) {
+  const W = CARD_W, H = CARD_H, FX = CARD_FX, FY = CARD_FY, TH = A.TH, FAM = A.FAM, DISP = A.DISP;
+  const rr = (X, Y, w, h, r) => { x.beginPath(); x.moveTo(X + r, Y); x.arcTo(X + w, Y, X + w, Y + h, r); x.arcTo(X + w, Y + h, X, Y + h, r); x.arcTo(X, Y + h, X, Y, r); x.arcTo(X, Y, X + w, Y, r); x.closePath(); };
+  x.save(); x.textBaseline = "middle"; x.textAlign = "center"; x.globalAlpha = 1;
+  // ---- nền ----
+  x.fillStyle = TH[1]; x.fillRect(0, 0, W, H);
+  if (A.bg) { const k = Math.max(W / A.bg.width, H / A.bg.height), dw = A.bg.width * k, dh = A.bg.height * k; x.globalAlpha = .55; x.drawImage(A.bg, (W - dw) / 2, (H - dh) / 2, dw, dh); x.globalAlpha = 1; }
+  if (A.key && A.key !== "green") { x.save(); x.globalCompositeOperation = "color"; x.fillStyle = TH[0]; x.globalAlpha = .75; x.fillRect(0, 0, W, H); x.restore(); }
+  const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "rgba(8,20,16,.55)"); g.addColorStop(.45, "rgba(8,20,16,.35)"); g.addColorStop(1, "rgba(6,16,13,.92)"); x.fillStyle = g; x.fillRect(0, 0, W, H);
+  // sao lấp lánh
+  A.stars.forEach((st) => { const a = .25 + .55 * (0.5 + 0.5 * Math.sin(t * 4 + st.ph)); x.globalAlpha = a; x.fillStyle = "#fff"; x.beginPath(); x.arc(st.x, st.y, st.r, 0, Math.PI * 2); x.fill(); }); x.globalAlpha = 1;
+  // tia sáng xoay chậm, bùng khi nổ
+  const boom = t >= 1.3 ? 1 + 0.35 * Math.max(0, 1 - (t - 1.3) / 0.5) : 0.75;
+  x.save(); x.translate(FX, FY); x.rotate(t * 0.18); x.globalAlpha = .09 * boom; x.fillStyle = "#fff";
+  for (let i = 0; i < 14; i++) { x.rotate(Math.PI / 7); x.beginPath(); x.moveTo(0, 0); x.lineTo(-44, -1000); x.lineTo(44, -1000); x.closePath(); x.fill(); }
+  x.restore();
+  // ---- đầu thẻ (hiện dần 0-0.5s) ----
+  const fadeIn = clamp01(t / 0.5); x.globalAlpha = fadeIn;
+  if (A.logo) { const b = 64, k = Math.min(b / A.logo.width, b / A.logo.height); x.fillStyle = "#fff"; x.beginPath(); x.arc(W / 2, 92, 42, 0, Math.PI * 2); x.fill(); x.drawImage(A.logo, W / 2 - A.logo.width * k / 2, 92 - A.logo.height * k / 2, A.logo.width * k, A.logo.height * k); }
+  x.fillStyle = "#fde68a"; x.font = `700 22px ${FAM}`; try { x.letterSpacing = "6px"; } catch {} x.fillText("CHÚC MỪNG", W / 2, 168); try { x.letterSpacing = "0px"; } catch {}
+  x.fillStyle = "rgba(255,255,255,.8)"; x.font = `500 26px ${FAM}`; x.fillText(`${A.c.name || "Lớp"} · ${A.c.long_year || ""}`, W / 2, 206);
+  // avatar
+  const AY = 330, AR = 96;
+  x.save(); x.shadowColor = "rgba(0,0,0,.45)"; x.shadowBlur = 30; x.fillStyle = "#fff"; x.beginPath(); x.arc(W / 2, AY, AR + 6, 0, Math.PI * 2); x.fill(); x.restore();
+  x.save(); x.beginPath(); x.arc(W / 2, AY, AR, 0, Math.PI * 2); x.clip();
+  if (A.photo) { const k = Math.max(AR * 2 / A.photo.width, AR * 2 / A.photo.height); x.drawImage(A.photo, W / 2 - A.photo.width * k / 2, AY - A.photo.height * k / 2, A.photo.width * k, A.photo.height * k); }
+  else { x.fillStyle = hueOf(A.name || String(A.p.id)); x.fillRect(W / 2 - AR, AY - AR, AR * 2, AR * 2); x.fillStyle = "#fff"; x.font = `800 72px ${DISP}`; x.fillText(initials(A.name), W / 2, AY + 4); }
+  x.restore();
+  x.fillStyle = "#fde68a"; x.font = `700 26px ${FAM}`; x.fillText((A.p.christian_name || "").toUpperCase(), W / 2, AY + AR + 44);
+  let nf = 60; x.font = `800 ${nf}px ${DISP}`; while (x.measureText(A.name).width > W - 120 && nf > 34) { nf -= 4; x.font = `800 ${nf}px ${DISP}`; }
+  x.save(); x.fillStyle = "#fff"; x.shadowColor = "rgba(0,0,0,.5)"; x.shadowBlur = 14; x.fillText(A.name, W / 2, AY + AR + 100); x.restore();
+  x.globalAlpha = 1;
+  // ---- quầng sáng (cấp cao nhất) ----
+  if (A.tier.min >= 10) { const R = 230 * (1 + 0.08 * Math.sin(t * 3)) * clamp01(t / 1); const hg = x.createRadialGradient(FX, FY, 10, FX, FY, R); hg.addColorStop(0, "rgba(253,224,71,.55)"); hg.addColorStop(.5, "rgba(253,224,71,.18)"); hg.addColorStop(1, "rgba(253,224,71,0)"); x.fillStyle = hg; x.beginPath(); x.arc(FX, FY, R, 0, Math.PI * 2); x.fill(); }
+  // ---- tàn lửa bay lên (từ cấp 3) ----
+  if (A.tier.min >= 3 && t > 0.6) A.embers.forEach((e) => { const u = ((t + e.dly) % 1.7) / 1.7; x.globalAlpha = (1 - u) * .9; x.fillStyle = A.tier.min >= 7 ? "#fff" : A.tier.min >= 5 ? "#bae6fd" : "#fde68a"; x.beginPath(); x.arc(FX + e.x0 + Math.sin(u * 7) * e.sw, FY + 20 - u * 260, e.sz * (1 - u * .5), 0, Math.PI * 2); x.fill(); }); x.globalAlpha = 1;
+  // ---- ngọn lửa: bùng lên 0-1s (nảy), nhấp nháy, sáng theo nhịp ----
+  const grow = t < 1 ? Math.max(0.05, easeOutBack(clamp01(t))) : 1;
+  const size = 300 * (0.86 + A.tier.scale * 0.14) * grow;
+  const pulse = 1 + 0.25 * Math.sin(t * 5) + (t >= 1.3 && t < 1.8 ? 0.6 * (1 - (t - 1.3) / 0.5) : 0);
+  drawFlame(x, FX, FY, size, A.tier, A.s.cur, { glowK: pulse, sy: 1 + 0.045 * Math.sin(t * 14), sk: 0.035 * Math.sin(t * 9), noNum: true });
+  // số: đếm lên + bật (0.9s -> 1.4s)
+  if (t >= 0.9) { const q = clamp01((t - 0.9) / 0.5); const val = Math.max(1, Math.round(A.s.cur * easeOut(q))); drawFlameNumber(x, FX, FY, size, val, 0.6 + 0.4 * easeOutBack(q)); }
+  // ---- tia lửa bay vòng quanh rồi hội tụ vào lửa (0-1.3s) ----
+  if (t < 1.32) A.orbit.forEach((o) => { const q = t / 1.3, r = o.r0 * (1 - q * q); const ang = o.a0 + o.dir * t * o.spd;
+    for (let k = 3; k >= 0; k--) { const tt = Math.max(0, t - k * 0.045), q2 = tt / 1.3, r2 = o.r0 * (1 - q2 * q2), a2 = o.a0 + o.dir * tt * o.spd; x.globalAlpha = (k === 0 ? .95 : .35 - k * .08) * clamp01(t / .3); x.fillStyle = o.col; x.beginPath(); x.arc(FX + Math.cos(a2) * r2, FY + Math.sin(a2) * r2 * .72, o.sz * (k === 0 ? 1 : .7) * (1 - q * .4), 0, Math.PI * 2); x.fill(); }
+    x.globalAlpha = 1; });
+  // ---- chớp sáng khi hội tụ (1.28-1.75s) ----
+  if (t >= 1.28 && t < 1.75) { const a = t < 1.38 ? (t - 1.28) / 0.1 : 1 - (t - 1.38) / 0.37; const fg = x.createRadialGradient(FX, FY, 0, FX, FY, 700); fg.addColorStop(0, `rgba(255,255,255,${(0.75 * a).toFixed(3)})`); fg.addColorStop(1, "rgba(255,255,255,0)"); x.fillStyle = fg; x.fillRect(0, 0, W, H); }
+  // ---- NỔ confetti (từ 1.32s) ----
+  if (t >= 1.32) { const u = t - 1.32; A.burst.forEach((b) => { const alpha = 1 - clamp01((u - 0.9) / 0.8); if (alpha <= 0) return; const px = FX + b.vx * u * (1 - u * .18), py = FY + b.vy * u + 0.5 * 1500 * u * u; if (py > H + 40) return;
+    x.save(); x.globalAlpha = alpha; x.translate(px, py); x.rotate(b.rot + b.rs * u); x.fillStyle = b.col; if (b.round) { x.beginPath(); x.arc(0, 0, b.h * .7, 0, Math.PI * 2); x.fill(); } else { rr(-b.w / 2, -b.h / 2, b.w, b.h, 2); x.fill(); } x.restore(); }); }
+  // ---- chữ dưới (hiện từ 1.5s) ----
+  const tf = clamp01((t - 1.5) / 0.45); x.globalAlpha = tf;
+  if (tf > 0) {
+    const pop = 0.9 + 0.1 * easeOutBack(tf);
+    x.save(); x.translate(W / 2, 1035); x.scale(pop, pop); x.fillStyle = "#fff"; x.font = `800 44px ${DISP}`; x.fillText(`${A.s.cur} buổi học liên tiếp`, 0, 0); x.restore();
+    const lab = A.tier.name.toUpperCase(); x.font = `700 22px ${FAM}`; const lw = x.measureText(lab).width + 60;
+    x.fillStyle = "rgba(255,255,255,.16)"; rr(W / 2 - lw / 2, 1068, lw, 48, 24); x.fill(); x.strokeStyle = "rgba(255,255,255,.35)"; x.lineWidth = 1.5; x.stroke();
+    x.fillStyle = "#fde68a"; x.fillText(lab, W / 2, 1093);
+    x.fillStyle = "rgba(255,255,255,.72)"; x.font = `500 24px ${FAM}`; x.fillText(`Dài nhất ${A.s.best} buổi  ·  Có mặt ${A.s.attended} buổi`, W / 2, 1160);
+  }
+  x.globalAlpha = .45 * fadeIn; x.fillStyle = "#fff"; x.font = `400 20px ${FAM}`; x.fillText(`Điểm Danh · Ban Giáo Lý · ${fmtDate(toISO(new Date()))}`, W / 2, H - 52);
+  x.restore();
+}
+function renderCardPng(A, t) {
+  const K = 1.5, cv = document.createElement("canvas"); cv.width = CARD_W * K; cv.height = CARD_H * K;
+  const x = cv.getContext("2d"); x.setTransform(K, 0, 0, K, 0, 0); paintCard(x, A, t == null ? 2.35 : t);
+  const url = cv.toDataURL("image/png");
+  if (!url || !url.startsWith("data:image/png;base64,") || url.length < 2000) throw new Error("Máy không đủ bộ nhớ để tạo ảnh");
+  return url;
+}
+// GIF động: 10 fps × 3.2s, ~370×460 — bảng màu chung lấy từ khung "nổ" (đủ màu confetti) để mã hoá nhanh trên điện thoại
+async function makeCardGif(A, onProgress) {
+  if (!window.GIF) throw new Error("Thiếu bộ mã hoá GIF");
+  const S = 0.34, w = Math.round(CARD_W * S), h = Math.round(CARD_H * S), fps = 10, frames = Math.round(CARD_DUR * fps), delay = Math.round(1000 / fps);
+  const cv = document.createElement("canvas"); cv.width = w; cv.height = h; const x = cv.getContext("2d");
+  const paint = (t) => { x.setTransform(S, 0, 0, S, 0, 0); paintCard(x, A, t); };
+  const opts = { workers: 2, quality: 14, width: w, height: h, workerScript: "assets/js/gif.worker.js", repeat: 0, dither: false };
+  // 1) bảng màu chung từ khung nhiều màu nhất (1.45s: lửa + confetti + chớp)
+  const pal = await new Promise((res, rej) => { const g0 = new GIF(Object.assign({}, opts, { globalPalette: true })); paint(1.45); g0.addFrame(x, { copy: true, delay }); g0.on("finished", () => res(g0.options.globalPalette)); g0.on("abort", () => rej(new Error("Đã huỷ"))); try { g0.render(); } catch (e) { rej(e); } });
+  if (onProgress) onProgress(0.08);
+  // 2) mã hoá toàn bộ khung với bảng màu đó (không phải lượng tử hoá lại từng khung -> nhanh gấp nhiều lần)
+  const gif = new GIF(Object.assign({}, opts, { globalPalette: Array.isArray(pal) && pal.length ? pal : true }));
+  for (let i = 0; i < frames; i++) { paint(i / fps); gif.addFrame(x, { copy: true, delay }); if (onProgress) onProgress(0.08 + (i / frames) * 0.32); if (i % 4 === 3) await new Promise((r) => setTimeout(r, 0)); }
+  return new Promise((res, rej) => { gif.on("progress", (p) => onProgress && onProgress(0.4 + p * 0.6)); gif.on("finished", (blob) => res(blob)); gif.on("abort", () => rej(new Error("Đã huỷ"))); try { gif.render(); } catch (e) { rej(e); } });
+}
+function videoMime() { try { if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) return null; return ["video/mp4;codecs=avc1.42E01E", "video/mp4", "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m)) || null; } catch { return null; } }
+// Video: ghi canvas 30fps trong 3.2s (MP4 nếu máy hỗ trợ, không thì WebM)
+async function makeCardVideo(A, onProgress) {
+  const mime = videoMime(); if (!mime) throw new Error("Máy không hỗ trợ ghi video");
+  const S = 0.6, w = Math.round(CARD_W * S), h = Math.round(CARD_H * S); const cv = document.createElement("canvas"); cv.width = w; cv.height = h; const x = cv.getContext("2d");
+  x.setTransform(S, 0, 0, S, 0, 0); paintCard(x, A, 0);
+  const stream = cv.captureStream(30), rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 3500000 }), chunks = [];
+  rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+  const stopped = new Promise((r) => (rec.onstop = r));
+  rec.start(250); const t0 = performance.now();
+  await new Promise((res) => { const tick = () => { const t = (performance.now() - t0) / 1000; x.setTransform(S, 0, 0, S, 0, 0); paintCard(x, A, Math.min(t, CARD_DUR)); if (onProgress) onProgress(clamp01(t / CARD_DUR)); if (t < CARD_DUR + 0.15) requestAnimationFrame(tick); else res(); }; tick(); });
+  rec.stop(); await stopped; stream.getTracks().forEach((tr) => tr.stop());
+  const type = mime.split(";")[0]; return { blob: new Blob(chunks, { type }), ext: type.includes("mp4") ? "mp4" : "webm", mime: type };
+}
+async function streakCardSheet(cid, eid) {
+  const enr = ((CX[cid] || {}).enr || []).find((e) => e.id === eid); if (!enr) return;
+  const p = enr.person || {}, vm = videoMime();
+  openSheet(`<h3>Khoe chuỗi · ${esc(p.name || p.full_name || "")}</h3><div id="scBody">
+    <div class="ex-prev dark" style="max-height:52vh"><canvas id="scCanvas" width="540" height="675"></canvas></div>
+    <div class="row" style="gap:10px;margin-top:14px">
+      <button class="btn gold" style="flex:1" onclick="cardSave('${cid}','gif',this)">${ic("sparkle", 18)} Lưu GIF động</button>
+      <button class="btn" style="flex:1" onclick="cardSave('${cid}','png',this)">${ic("download", 18)} Lưu ảnh</button>
+    </div>
+    <div class="row" style="gap:10px;margin-top:10px">
+      ${vm ? `<button class="btn ghost" style="flex:1" onclick="cardSave('${cid}','video',this)">${ic("image", 17)} Lưu video ${vm.includes("mp4") ? "MP4" : "WebM"}</button>` : ""}
+      <button class="btn ghost" style="flex:1" onclick="cardShare('${cid}',this)">${ic("share", 17)} Gửi phụ huynh</button>
+    </div>
+    <div id="scProg" class="faint" style="text-align:center;font-size:12.5px;margin-top:10px;min-height:16px"></div>
+    <button class="btn ghost" style="margin-top:8px" onclick="streakSheet('${cid}',${eid})">Quay lại</button></div>`);
+  let A;
+  try { A = await cardAssets(cid, eid); }
+  catch (e) { const b = $("scBody"); if (b) b.innerHTML = `<div class="empty" style="padding:26px"><div class="big">⚠️</div><div>Không tạo được thẻ: ${esc(e.message || e)}</div></div>`; return; }
+  CX[cid]._card = A; CX[cid]._cardEid = eid;
+  // xem trước động ngay trong app
+  const cv = $("scCanvas"); if (!cv) return;
+  const S = 0.5, x = cv.getContext("2d"), t0 = performance.now();
+  const loop = () => { const el = $("scCanvas"); if (!el || el !== cv) return; if (!document.hidden) { const t = ((performance.now() - t0) / 1000) % CARD_DUR; x.setTransform(S, 0, 0, S, 0, 0); paintCard(x, A, t); } requestAnimationFrame(loop); };
+  loop();
+}
+async function cardSave(cid, kind, btn) {
+  const A = CX[cid]._card; if (!A) return toast("Thẻ chưa sẵn sàng, thử lại");
+  if (btn && btn.classList.contains("busy")) return;
+  const prog = (v) => { const el = $("scProg"); if (el) el.textContent = v == null ? "" : `Đang tạo ${kind === "gif" ? "GIF" : kind === "video" ? "video" : "ảnh"}… ${Math.round(v * 100)}%`; };
+  if (btn) btn.classList.add("busy");
+  try {
+    const base = `chuoi-hoc-${slug(A.name)}-${A.s.cur}`; let blob, name, mime;
+    if (kind === "png") { blob = await (await fetch(renderCardPng(A))).blob(); name = base + ".png"; mime = "image/png"; }
+    else if (kind === "gif") { prog(0); blob = await makeCardGif(A, prog); name = base + ".gif"; mime = "image/gif"; }
+    else { prog(0); const r = await makeCardVideo(A, prog); blob = r.blob; name = base + "." + r.ext; mime = r.mime; }
+    prog(null);
+    const el = $("scProg"); if (el) el.textContent = `${kind === "png" ? "Ảnh" : kind === "gif" ? "GIF" : "Video"} ${fmtBytes(blob.size)}`;
+    await saveMedia(blob, name, mime);
+  } catch (e) { prog(null); toast("Lỗi: " + (e.message || e), 3200); }
+  finally { if (btn) btn.classList.remove("busy"); }
+}
+async function cardShare(cid, btn) {
+  const A = CX[cid]._card; if (!A) return toast("Thẻ chưa sẵn sàng, thử lại");
+  if (btn) btn.classList.add("busy");
+  try { await shareDataUrl(renderCardPng(A), `chuoi-hoc-${slug(A.name)}-${A.s.cur}.png`, `🔥 ${A.name} · chuỗi ${A.s.cur} buổi học liên tiếp`); }
+  catch (e) { toast("Lỗi: " + (e.message || e)); } finally { if (btn) btn.classList.remove("busy"); }
+}
+// ---- Lưu vào Thư viện máy (plugin SaveToGallery) · web: tải về ----
+function blobToBase64(blob) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = () => rej(new Error("Không đọc được dữ liệu")); r.readAsDataURL(blob); }); }
+async function saveMedia(blob, name, mime) {
+  const P = window.Capacitor?.Plugins?.SaveToGallery;
+  if (P) { const base64 = await blobToBase64(blob); await P.save({ base64, fileName: name, mime, album: "Điểm Danh" }); haptic(); toast(`Đã lưu vào Thư viện · album Điểm Danh`, 2600); return true; }
+  try { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); toast("Đã tải về máy"); return true; }
+  catch (e) { toast("Không lưu được: " + (e.message || e)); return false; }
+}
+async function saveDataUrl(url, name, mime) { const blob = await (await fetch(url)).blob(); return saveMedia(blob, name, mime || "image/png"); }
+window.streakCardSheet = streakCardSheet; window.cardSave = cardSave; window.cardShare = cardShare; window.saveDataUrl = saveDataUrl;
+// Chia sẻ ảnh (dataURL) qua share sheet trên app; web: navigator.share hoặc tải về
+let _shareBusy = false;
+async function shareDataUrl(url, fname, title) {
+  if (_shareBusy) return;
+  const FS = window.Capacitor?.Plugins?.Filesystem, Sh = window.Capacitor?.Plugins?.Share, native = !!(FS && Sh);
+  _shareBusy = true;
+  try {
+    if (native) { const w = await FS.writeFile({ path: fname, data: url.split(",")[1], directory: "CACHE" }); await Sh.share({ title, text: title, files: [w.uri], dialogTitle: "Lưu ảnh / gửi" }); }
+    else if (navigator.share) { const blob = await (await fetch(url)).blob(), file = new File([blob], fname, { type: "image/png" }); if (navigator.canShare && navigator.canShare({ files: [file] })) await navigator.share({ title, files: [file] }); else throw new Error("no-files"); }
+    else throw new Error("no-share");
+  } catch (e) {
+    const msg = (e && (e.message || e.name)) || "";
+    if (/cancel|abort|in progress/i.test(msg)) return;
+    if (native) toast("Không chia sẻ được: " + (msg || "lỗi không rõ"), 3000);
+    else { try { const a = document.createElement("a"); a.href = url; a.download = fname; document.body.appendChild(a); a.click(); a.remove(); toast("Đã tải ảnh về máy"); } catch { toast("Không chia sẻ được: " + msg); } }
+  } finally { _shareBusy = false; }
+}
+
+function saveStreakRules(cid, eid) {
+  const r = {}; document.querySelectorAll("#sheet [data-st]").forEach((x) => (r[x.dataset.st] = x.value));
+  if (!store.set("bgl-streak", r)) return toast(QUOTA_MSG, 3200); toast("Đã lưu quy tắc chuỗi");
+  if (cid) { paintStreaks(cid); streakSheet(cid, eid); } else closeSheet();
+}
+function resetStreakRules(cid, eid) { store.set("bgl-streak", {}); toast("Đã khôi phục mặc định"); if (cid) { paintStreaks(cid); streakSheet(cid, eid); } else closeSheet(); }
+window.streakSheet = streakSheet; window.streakDayMenu = streakDayMenu; window.streakToggle = streakToggle; window.streakForgive = streakForgive;
+window.streakSettingsSheet = streakSettingsSheet; window.saveStreakRules = saveStreakRules; window.resetStreakRules = resetStreakRules; window.retryStreak = retryStreak;
+
 // ---------- Tab: Giáo lý viên của lớp ----------
 async function tabTeachers(id) {
   try {
@@ -509,7 +1078,7 @@ async function teachersScreen() {
   try {
     const list = await BGL.teachersByYear(S.year && S.year.year);
     S._teachers = list;
-    screen(appbar({ title: "Giáo lý viên", action: `<button class="act" onclick="go('#/search')">${ic("search", 20)}</button>` }) +
+    screen(appbar({ title: "Giáo lý viên", bell: true, action: `<button class="act" onclick="go('#/search')">${ic("search", 20)}</button>` }) +
       `<main><div class="wrap">
         <input id="tq" class="input" placeholder="Lọc theo tên…" oninput="filterTeachers(this.value)" style="margin:2px 0 14px"/>
         <div class="muted" style="margin:0 2px 12px;font-size:13px">${list.length} giáo lý viên · ${esc(S.year ? S.year.long_year : "")}</div>
@@ -571,7 +1140,7 @@ function meScreen() {
   const u = S.user || {};
   const role = myRole();
   const tm = themeMode();
-  screen(appbar({ title: "Tôi" }) + `<main><div class="wrap stack">
+  screen(appbar({ title: "Tôi", bell: true }) + `<main><div class="wrap stack">
     <div class="card pad press" onclick="${u.person_id ? `go('#/person/${u.person_id}')` : ""}">
       <div class="row">${avatar({ id: u.person_id, name: u.person_name }, { size: 56, r: 18, fs: 20, cls: "g", tappable: true })}
         <div class="grow"><div class="disp" style="font-size:19px">${esc(u.person_name || "")}</div>
@@ -581,7 +1150,7 @@ function meScreen() {
 
     <div class="sec-eyebrow"><span class="eyebrow">Ứng dụng</span></div>
     <button class="card pad press" style="width:100%;text-align:left" onclick="utilsSheet()">
-      <div class="row"><span style="color:var(--brand-2)">${ic("gear", 22)}</span><div class="grow"><div style="font-weight:600">Tiện ích ứng dụng</div><div class="muted" style="font-size:12.5px">Cử chỉ quẹt · Sao lưu · Nhập · Debug · Xoá dữ liệu</div></div><span class="list-arrow">${ic("chev", 20)}</span></div>
+      <div class="row"><span style="color:var(--brand-2)">${ic("gear", 22)}</span><div class="grow"><div style="font-weight:600">Tiện ích ứng dụng</div><div class="muted" style="font-size:12.5px">Cử chỉ quẹt · Chuỗi học · Sao lưu · Debug · Xoá dữ liệu</div></div><span class="list-arrow">${ic("chev", 20)}</span></div>
     </button>
 
     <div class="sec-eyebrow"><span class="eyebrow">Giao diện</span></div>
@@ -594,7 +1163,7 @@ function meScreen() {
     <button class="card pad press" style="width:100%;text-align:left;color:var(--danger)" onclick="doLogout()">
       <div class="row">${ic("logout", 22)}<div class="grow" style="font-weight:600">Đăng xuất</div></div>
     </button>
-    <div class="faint" style="text-align:center;font-size:11.5px;padding:8px">Ban Giáo Lý · v1.0</div>
+    <div class="faint" style="text-align:center;font-size:11.5px;padding:8px">Điểm Danh · v1.1 · Ban Giáo Lý</div>
   </div></main>`, "me");
 }
 function setTheme(m) { store.set("bgl-theme", m); applyTheme(m); meScreen(); }
@@ -626,6 +1195,7 @@ function utilsSheet() {
   const fxOn = effectsOn();
   openSheet(`<h3>Tiện ích ứng dụng</h3>
     ${utilRow("swipe", "Cử chỉ quẹt", "Tùy chỉnh vuốt lên/xuống/trái/phải &amp; chạm đôi", "gestureSheet()")}
+    ${utilRow("fire", "Chuỗi học", "Quy tắc cộng / giữ / mất chuỗi · Xuất / Nhập dữ liệu chuỗi", "streakSettingsSheet()")}
     ${utilRow("gear", "Hiệu năng &amp; hiệu ứng", `Bật/tắt hiệu ứng động · <b style="color:${fxOn ? "var(--present-t)" : "var(--ink-faint)"}">${fxOn ? "ĐANG BẬT" : "ĐANG TẮT"}</b>`, "perfSheet()")}
     ${utilRow("upload", "Sao lưu &amp; xuất dữ liệu", "Xuất ảnh + cài đặt ra 1 file để lưu / chuyển máy", "exportData()")}
     ${utilRow("download", "Nhập dữ liệu", "Khôi phục ảnh &amp; cài đặt từ file sao lưu", "importData()")}
@@ -642,10 +1212,11 @@ function fallbackCopy(t, done) { try { const ta = document.createElement("textar
 
 // ---- Sao lưu / Xuất ----
 function collectBackup() {
-  const d = { app: "BanGiaoLy", version: 1, exportedAt: new Date().toISOString(), userId: (S.user && S.user.id) || null, userName: (S.user && S.user.person_name) || null, photos: {}, names: {}, settings: {} };
+  const d = { app: "DiemDanh", version: 2, exportedAt: new Date().toISOString(), userId: (S.user && S.user.id) || null, userName: (S.user && S.user.person_name) || null, photos: {}, names: {}, settings: {} };
   try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf("bgl-photo-") === 0 && k !== "bgl-photo-names") d.photos[k] = localStorage.getItem(k); } } catch {}
   try { d.names = JSON.parse(localStorage.getItem("bgl-photo-names") || "{}"); } catch {}
-  ["bgl-gestures", "bgl-theme"].forEach((k) => { try { const v = localStorage.getItem(k); if (v != null) d.settings[k] = v; } catch {} });
+  ["bgl-gestures", "bgl-theme", "bgl-streak", "bgl-effects"].forEach((k) => { try { const v = localStorage.getItem(k); if (v != null) d.settings[k] = v; } catch {} });
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf("bgl-streak-adj-") === 0) d.settings[k] = localStorage.getItem(k); } } catch {}
   return d;
 }
 async function exportData() {
@@ -656,7 +1227,7 @@ async function exportData() {
   if (FS && Sh) {
     try {
       const w = await FS.writeFile({ path: fname, data: json, directory: "CACHE", encoding: "utf8" });
-      await Sh.share({ title: "Sao lưu Ban Giáo Lý", text: `Sao lưu ${nPhotos} ảnh + cài đặt`, url: w.uri, dialogTitle: "Lưu / gửi file sao lưu" });
+      await Sh.share({ title: "Sao lưu Điểm Danh", text: `Sao lưu ${nPhotos} ảnh + cài đặt`, url: w.uri, dialogTitle: "Lưu / gửi file sao lưu" });
       toast(`Đã xuất ${nPhotos} ảnh`);
     } catch (e) { if (!/cancel/i.test(e.message || "")) toast("Lỗi xuất: " + e.message); }
   } else {
@@ -681,8 +1252,12 @@ function importData() {
           const m = k.match(/-(\d+)$/); if (m && S.user) { try { localStorage.setItem(photoKey(m[1]), val); } catch {} } n++;
         });
         if (d.names) { try { const cur = JSON.parse(localStorage.getItem("bgl-photo-names") || "{}"); localStorage.setItem("bgl-photo-names", JSON.stringify(Object.assign(cur, d.names))); } catch {} }
-        if (d.settings) Object.keys(d.settings).forEach((k) => { if (d.settings[k] != null) try { localStorage.setItem(k, d.settings[k]); } catch {} });
-        applyTheme(themeMode());
+        if (d.settings) Object.keys(d.settings).forEach((k) => {
+          if (d.settings[k] == null) return;
+          try { localStorage.setItem(k, d.settings[k]); } catch {}
+          const m = k.match(/^bgl-streak-adj-[^-]+-(\d+)$/); if (m && S.user) { try { localStorage.setItem(streakAdjKey(m[1]), d.settings[k]); } catch {} }   // gán cho tài khoản đang đăng nhập
+        });
+        applyTheme(themeMode()); document.documentElement.classList.toggle("no-fx", !effectsOn());
         closeSheet(); toast(`Đã nhập ${n} ảnh + cài đặt ✓`); render();
       } catch (e) { toast("File không đọc được: " + e.message); }
     };
@@ -711,7 +1286,7 @@ function deleteSheet() {
         <div class="row"><span style="color:var(--brand-2)">${ic("key", 20)}</span><div class="grow"><div style="font-weight:600">Tài khoản đã lưu</div><div class="muted" style="font-size:12px">${hasCred ? "Xoá SĐT/mật khẩu đã lưu trên máy" : "Chưa lưu tài khoản"}</div></div></div>
       </button>
       <button class="card pad press" style="width:100%;text-align:left" onclick="confirmDelete('settings')">
-        <div class="row"><span style="color:var(--brand-2)">${ic("gear", 20)}</span><div class="grow"><div style="font-weight:600">Cài đặt</div><div class="muted" style="font-size:12px">Cử chỉ quẹt + giao diện về mặc định</div></div></div>
+        <div class="row"><span style="color:var(--brand-2)">${ic("gear", 20)}</span><div class="grow"><div style="font-weight:600">Cài đặt</div><div class="muted" style="font-size:12px">Cử chỉ quẹt, quy tắc & điều chỉnh chuỗi, giao diện về mặc định</div></div></div>
       </button>
       <button class="card pad press" style="width:100%;text-align:left;border:1px solid var(--danger)" onclick="confirmDelete('all')">
         <div class="row"><span style="color:var(--danger)">${ic("trash", 20)}</span><div class="grow"><div style="font-weight:600;color:var(--danger)">Xoá tất cả</div><div class="muted" style="font-size:12px">Xoá toàn bộ dữ liệu app trên máy này</div></div></div>
@@ -736,7 +1311,7 @@ function deletePhotosSheet() {
 }
 function delOnePhoto(k) { try { localStorage.removeItem(k); } catch {} toast("Đã xoá ảnh"); deletePhotosSheet(); }
 function confirmDelete(what) {
-  const label = { photos: "toàn bộ ẢNH học sinh", cache: "CACHE dữ liệu", cred: "TÀI KHOẢN đã lưu", settings: "CÀI ĐẶT (cử chỉ + giao diện)", all: "TẤT CẢ dữ liệu app" }[what];
+  const label = { photos: "toàn bộ ẢNH học sinh", cache: "CACHE dữ liệu", cred: "TÀI KHOẢN đã lưu", settings: "CÀI ĐẶT (cử chỉ, quy tắc & điều chỉnh chuỗi, giao diện)", all: "TẤT CẢ dữ liệu app" }[what];
   openSheet(`<h3>Xác nhận xoá</h3><p class="muted" style="margin:-6px 2px 16px;font-size:14px">Bạn chắc chắn muốn xoá <b style="color:var(--ink)">${label}</b>? Không thể hoàn tác.</p>
     <div class="pickgrid"><button class="pickbtn clear" onclick="deleteSheet()">Huỷ</button>
     <button class="pickbtn" style="grid-column:span 2;justify-content:center;color:#fff;background:var(--danger);border-color:var(--danger)" onclick="doDelete('${what}')">${ic("trash", 18)} Xoá</button></div>`);
@@ -746,13 +1321,17 @@ function doDelete(what) {
     if (what === "photos" || what === "all") { photoKeys().forEach((k) => localStorage.removeItem(k)); localStorage.removeItem("bgl-photo-names"); }
     if (what === "cache") { /* CX là bộ nhớ tạm trong RAM */ }
     if (what === "cred" || what === "all") localStorage.removeItem("bgl-cred");
-    if (what === "settings" || what === "all") { localStorage.removeItem("bgl-gestures"); localStorage.removeItem("bgl-theme"); }
-    if (what === "all") { localStorage.removeItem("bgl-debug"); }
+    if (what === "settings" || what === "all") {
+      ["bgl-gestures", "bgl-theme", "bgl-streak", "bgl-class-theme"].forEach((k) => localStorage.removeItem(k));
+      const ks = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && (k.indexOf("bgl-streak-adj-") === 0 || (what === "all" && k.indexOf("bgl-notifs-") === 0))) ks.push(k); }
+      ks.forEach((k) => localStorage.removeItem(k));
+    }
+    if (what === "all") localStorage.removeItem("bgl-debug");
   } catch {}
   for (const k in CX) delete CX[k];   // xoá cache RAM
-  if (what === "settings" || what === "all") applyTheme(themeMode());
+  if (what === "settings" || what === "all") { applyClassTheme(what === "all" ? "" : classThemeKey(S.myAssignments && S.myAssignments[0] && S.myAssignments[0].classroom), what !== "all"); applyTheme(themeMode()); }
   closeSheet(); toast("Đã xoá xong");
-  if (what === "all") { S.user && meScreen(); }
+  if (what === "all") { refreshBell(); S.user && meScreen(); }
 }
 window.deleteSheet = deleteSheet; window.deletePhotosSheet = deletePhotosSheet; window.delOnePhoto = delOnePhoto; window.confirmDelete = confirmDelete; window.doDelete = doDelete;
 
@@ -807,7 +1386,9 @@ window.loginInfoSheet = loginInfoSheet;
 //  ĐIỂM DANH  (SWIPE + COLUMN + CONFIRM)  — signature feature
 // ============================================================
 async function tabAttendance(id) {
-  const A = (CX[id].att = CX[id].att || { date: defaultSunday(), assign: {}, existing: {}, dirty: new Set(), idx: 0, loaded: false, undo: [], prompted: false });
+  const yr = classYearRange(CX[id].info);
+  const A = (CX[id].att = CX[id].att || { date: defaultSunday(yr), assign: {}, existing: {}, dirty: new Set(), idx: 0, loaded: false, undo: [], prompted: false, justSaved: false });
+  loadClassAttendance(id);   // nền: dữ liệu cả năm cho Chuỗi học / thông báo sau khi Xác nhận
   $("tabBody").innerHTML = `
     <button class="card pad press" style="width:100%;text-align:left;margin-bottom:14px;background:var(--surface)" onclick="sundaySheet('${id}')">
       <div class="row"><span style="color:var(--brand-2)">${ic("cal", 20)}</span>
@@ -821,18 +1402,18 @@ async function tabAttendance(id) {
     </div>
     <div id="attArea"><div class="spin"></div></div>`;
   await loadAtt(id); renderColumn(id);
-  if (!A.prompted && !isSundayToday()) { A.prompted = true; notSundayPrompt(id); }
+  if (!A.prompted && !isSundayToday() && yr && yr.current) { A.prompted = true; notSundayPrompt(id); }
 }
 window.tabAttendance = tabAttendance;
 
 function setAttDate(id, date) {
-  const A = CX[id].att; A.date = date; A.loaded = false; A.assign = {}; A.existing = {}; A.dirty = new Set(); A.idx = 0; A.undo = [];
+  const A = CX[id].att; A.date = date; A.loaded = false; A.assign = {}; A.existing = {}; A.dirty = new Set(); A.idx = 0; A.undo = []; A.justSaved = false;
   const lbl = $("adateLbl"); if (lbl) lbl.innerHTML = `${weekdayVN(date)}, ${fmtDate(date)}`;
   const area = $("attArea"); if (area) area.innerHTML = `<div class="spin"></div>`;
   loadAtt(id).then(() => renderColumn(id));
 }
 function sundaySheet(id) {
-  const A = CX[id].att, list = academicSundays();
+  const A = CX[id].att, list = academicSundays(classYearRange(CX[id].info));
   if (!list.length) return toast("Chưa có dữ liệu niên khóa");
   let html = "", curM = "";
   list.forEach((sd) => {
@@ -865,7 +1446,7 @@ async function loadAtt(id) {
     A.existing = {}; A.assign = {};
     recs.forEach((r) => { A.existing[r.attendable_id] = { id: r.id, status: r.status }; A.assign[r.attendable_id] = r.status; });
   } catch { A.existing = {}; }
-  A.idx = 0; A.undo = []; A.dirty = new Set(); A.syncSnooze = 0; A.loaded = true;
+  A.idx = 0; A.undo = []; A.dirty = new Set(); A.syncSnooze = 0; A.justSaved = false; A.loaded = true;
 }
 function changeCount(A) {
   let n = 0;
@@ -993,7 +1574,13 @@ function renderColumn(id) {
   const summary = `<div class="statgrid" style="margin-bottom:14px">
     ${statTile(done + "/" + A.enr.length, "Đã điểm", "gold")}
     ${STATUSES.slice(0, 5).map((s) => statTile(counts[s.v], s.v, STONE[s.v])).join("")}</div>`;
-  const rows = A.enr.map((e) => {
+  // Bộ lọc theo trạng thái ("" = tất cả · "none" = chưa điểm · tên trạng thái)
+  const F = A.filter || "", shown = A.enr.filter((e) => attMatches(A, e));
+  const chip = (key, label, n, cls) => `<button class="pick ${F === key ? "on " + cls : ""}" onclick="setAttFilter('${id}','${key}')">${label} <b class="num">${n}</b></button>`;
+  const filterBar = `<div class="rev-status filterbar">${chip("", "Tất cả", A.enr.length, "st-quit")}${chip("none", "Chưa điểm", A.enr.length - done, "st-quit")}${STATUSES.filter((s) => counts[s.v] || F === s.v || s.v !== "Nghỉ Luôn").map((s) => chip(s.v, s.v, counts[s.v] || 0, s.cls)).join("")}</div>
+    <div class="row" style="margin:0 2px 10px;gap:10px"><span class="muted grow" style="font-size:12.5px">${F ? `Đang hiện ${shown.length}/${A.enr.length} em` : `${A.enr.length} em`}</span>
+      <button class="btn ghost sm" style="padding:8px 12px" onclick="applyAllSheet('${id}')">${ic("check", 15)} Đặt tất cả${F ? " (đang hiện)" : ""}</button></div>`;
+  const rows = shown.map((e) => {
     const p = e.person || {}, cur = A.assign[e.id] || "";
     return `<button class="rev-row" style="width:100%;text-align:left;background:none" onclick="statusPicker('${id}',${e.id})">
       ${avatar(p, { size: 42, r: 12, fs: 14, tappable: true })}
@@ -1001,12 +1588,39 @@ function renderColumn(id) {
       <span class="chip ${cur ? stCls(cur) : "st-none"}">${cur ? '<span class="dot"></span>' : ""}${cur || "Chưa điểm"}</span>
       <span class="list-arrow">${ic("chev", 18)}</span>
     </button>`;
-  }).join("");
+  }).join("") || `<div class="empty" style="padding:30px 20px;font-size:13.5px">Không có em nào ở trạng thái này</div>`;
   const swipeCta = `<button class="btn press" style="margin-bottom:14px" onclick="openSwipeFull('${id}')">${ic("swipe", 18)} Quẹt để điểm danh nhanh</button>`;
-  area.innerHTML = swipeCta + summary + `<div class="card divlist" style="overflow:hidden">${rows}</div><div style="height:84px"></div>` +
-    `<div class="confirmbar"><button class="btn gold" id="confirmBtn" onclick="attConfirm('${id}')">${ic("check", 18)} Xác nhận (${changeCount(A)})</button></div>`;
+  // Đã điểm đủ cả lớp HOẶC vừa Xác nhận thành công -> hiện ô xuất bảng điểm danh (lấp lánh)
+  const allDone = done === A.enr.length, pending = changeCount(A);
+  const exportCta = (allDone || A.justSaved) ? `<button class="export-cta press" onclick="exportSheet('${id}')">
+      <span class="ex-ic">${ic("image", 22)}</span>
+      <div class="grow"><div class="ex-t">Xuất bảng điểm danh</div>
+        <div class="ex-s">${allDone ? `Đã điểm đủ ${A.enr.length} em` : "Đã lưu lên hệ thống"} · tạo ảnh gửi phụ huynh${pending ? ` · còn ${pending} thay đổi chưa xác nhận` : ""}</div></div>
+      <span class="ex-chev">${ic("chev", 18)}</span><i class="sp s1"></i><i class="sp s2"></i><i class="sp s3"></i></button>` : "";
+  area.innerHTML = swipeCta + exportCta + summary + filterBar + `<div class="card divlist" style="overflow:hidden">${rows}</div><div style="height:84px"></div>` +
+    `<div class="confirmbar"><button class="btn gold" id="confirmBtn" ${A.saving ? "disabled" : ""} onclick="attConfirm('${id}')">${A.saving ? `<span class="spin" style="width:18px;height:18px;margin:0;border-width:2px"></span> Đang gửi…` : `${ic("check", 18)} Xác nhận (${changeCount(A)})`}</button></div>`;
 }
 window.renderColumn = renderColumn;
+function attMatches(A, e) { const F = A.filter || "", v = A.assign[e.id] || ""; return F === "" ? true : F === "none" ? !v : v === F; }
+function setAttFilter(id, key) { const A = CX[id].att; A.filter = A.filter === key ? "" : key; haptic(8); renderColumn(id); }
+// Đặt 1 trạng thái cho tất cả em đang hiển thị (theo bộ lọc) — chưa gửi, vẫn cần Xác nhận
+function applyAllSheet(id) {
+  const A = CX[id].att, F = A.filter || "", shown = A.enr.filter((e) => attMatches(A, e));
+  if (!shown.length) return toast("Không có em nào để áp dụng");
+  const scope = F === "" ? "tất cả" : F === "none" ? "chưa điểm" : `đang ${F}`;
+  const btns = STATUSES.map((s) => `<button class="pickbtn" onclick="applyAll('${id}','${s.v}')"><span class="sw" style="background:var(${stColorVar(s.v)})"></span>${s.v}</button>`).join("");
+  openSheet(`<h3>Đặt trạng thái cho ${shown.length} em</h3>
+    <p class="muted" style="margin:-6px 2px 14px;font-size:13.5px;line-height:1.45">Áp dụng cho <b style="color:var(--ink)">${shown.length} em ${scope}</b> đang hiển thị. Chưa gửi lên hệ thống — soát lại rồi bấm Xác nhận.</p>
+    <div class="pickgrid">${btns}<button class="pickbtn clear" onclick="applyAll('${id}','')">Xóa trạng thái (Chưa điểm)</button></div>`);
+}
+function applyAll(id, v) {
+  const A = CX[id].att, shown = A.enr.filter((e) => attMatches(A, e));
+  shown.forEach((e) => { A.dirty.add(String(e.id)); if (v) A.assign[e.id] = v; else delete A.assign[e.id]; });
+  A.filter = ""; closeSheet(); haptic();
+  toast(v ? `Đã đặt ${v} cho ${shown.length} em` : `Đã xóa trạng thái ${shown.length} em`);
+  renderColumn(id);
+}
+window.setAttFilter = setAttFilter; window.applyAllSheet = applyAllSheet; window.applyAll = applyAll;
 
 function statusPicker(id, eid) {
   const A = CX[id].att, e = A.enr.find((x) => x.id === eid) || {}, p = e.person || {}, cur = A.assign[eid] || "";
@@ -1026,22 +1640,206 @@ async function attConfirm(id) {
     else if (!desired && ex) jobs.push({ type: "delete", eid, id: ex.id });
   });
   if (!jobs.length) return toast("Không có thay đổi để gửi");
-  const btn = $("confirmBtn"); btn.disabled = true;
+  if (A.saving) return;
+  A.saving = true;
+  const btn = $("confirmBtn"); if (btn) btn.disabled = true;
+  const before = streakMap(id);                     // chuỗi TRƯỚC khi lưu (từ cache, không chờ mạng)
   let ok = 0, fail = 0;
   for (let i = 0; i < jobs.length; i++) {
-    const j = jobs[i]; btn.innerHTML = `<span class="spin" style="width:18px;height:18px;margin:0;border-width:2px"></span> Đang gửi ${i + 1}/${jobs.length}`;
+    const j = jobs[i]; if (btn) btn.innerHTML = `<span class="spin" style="width:18px;height:18px;margin:0;border-width:2px"></span> Đang gửi ${i + 1}/${jobs.length}`;
     try {
       if (j.type === "create") { const r = await BGL.createAttendance("Enrollment", +j.eid, A.date, j.status); A.existing[j.eid] = { id: (r && (r.id || (r.data && r.data.id))), status: j.status }; }
       else if (j.type === "update") { await BGL.updateAttendance(j.id, j.status); A.existing[j.eid] = { id: j.id, status: j.status }; }
       else if (j.type === "delete") { await BGL.deleteAttendance(j.id); delete A.existing[j.eid]; }
-      ok++;
+      ok++; A.dirty.delete(String(j.eid));   // đã lên web -> không còn là thay đổi chờ gửi
     } catch (e) { fail++; }
   }
   CX[id].enr = null;
+  A.justSaved = fail === 0; A.saving = false;
   toast(fail ? `Gửi xong: ${ok} ok, ${fail} lỗi` : `Đã lưu điểm danh ${ok} thiếu nhi ✓`, 2600);
   renderColumn(id);
+  // vá cache điểm danh cả năm cho ngày này (nếu đang tải thì chờ tối đa 4s / hoặc vá khi tải xong) -> chuỗi -> thông báo
+  const day = {}; Object.keys(A.existing).forEach((eid) => { if (A.existing[eid]) day[eid] = A.existing[eid].status; });
+  const C = CX[id]; C.attPatch = { date: A.date, day };
+  try { if (C.attAllP) await Promise.race([C.attAllP, new Promise((r) => setTimeout(r, 4000))]); } catch {}
+  if (C.attAll && C.attPatch) { C.attAll.by[A.date] = day; C.attPatch = null; }
+  notifyConfirm(id, A, ok, fail, before, streakMap(id));
+  if ($("stuList")) paintStreaks(id);
 }
 window.attConfirm = attConfirm;
+// Chuỗi hiện tại của từng em trong lớp từ cache (null nếu chưa có dữ liệu cả năm)
+function streakMap(id) {
+  if (!CX[id] || !CX[id].attAll) return null;
+  const m = {}; (((CX[id].att || {}).enr) || []).forEach((e) => { const s = computeStreak(id, e.id); m[e.id] = s ? s.cur : 0; });
+  return m;
+}
+function notifyConfirm(id, A, ok, fail, before, after) {
+  const c = CX[id].info || {}, name = c.name || "Lớp", when = `${weekdayVN(A.date)} ${fmtDate(A.date)}`;
+  const counts = {}; A.enr.forEach((e) => { const v = A.assign[e.id]; if (v) counts[v] = (counts[v] || 0) + 1; });
+  const sum = STATUSES.map((st) => (counts[st.v] ? `${counts[st.v]} ${st.v}` : "")).filter(Boolean).join(" · ");
+  if (fail) Notif.add({ kind: "error", title: `Điểm danh ${name}: ${fail} mục chưa lưu được`, body: `${when} · ${ok} thành công, ${fail} lỗi — kiểm tra mạng rồi bấm Xác nhận lại`, href: `#/class/${id}/diemdanh` });
+  else Notif.add({ kind: "confirm", title: `Đã lưu điểm danh ${name}`, body: `${when} · ${sum || ok + " em"}`, href: `#/class/${id}/diemdanh` });
+  if (!before || !after) return;
+  const hit = [], lost = [];
+  A.enr.forEach((e) => {
+    const b = before[e.id] || 0, a = after[e.id] || 0, p = e.person || {}, nm = p.name || p.full_name || "Thiếu nhi";
+    if (a > b && (a === 3 || a === 5 || a === 7 || (a >= 10 && a % 5 === 0))) hit.push({ e, nm, n: a });
+    else if (b >= 3 && a < b) lost.push({ e, nm, b, a });
+  });
+  const names = (arr) => arr.slice(0, 4).map((x) => x.nm).join(", ") + (arr.length > 4 ? ` và ${arr.length - 4} em khác` : "");
+  // 1 em -> báo riêng (bấm nhảy tới em) · nhiều em -> gộp 1 thông báo (bấm về tab Thiếu nhi)
+  if (hit.length === 1) Notif.add({ kind: "streak", title: `🔥 ${hit[0].nm} đạt chuỗi ${hit[0].n} buổi`, body: `${name} · học liên tục ${hit[0].n} buổi`, href: `#/class/${id}/thieunhi/${hit[0].e.id}` });
+  else if (hit.length > 1) { const ms = [...new Set(hit.map((x) => x.n))].sort((x, y) => x - y).join(" / "); Notif.add({ kind: "streak", title: `🔥 ${hit.length} em đạt chuỗi ${ms} buổi`, body: `${name} · ${names(hit)}`, href: `#/class/${id}/thieunhi` }); }
+  if (lost.length === 1) Notif.add({ kind: "lost", title: `${lost[0].nm} mất chuỗi ${lost[0].b} buổi`, body: `${name} · ${fmtDate(A.date)}${lost[0].a ? ` · chuỗi mới: ${lost[0].a}` : ""} — có thể khôi phục trong ô Chuỗi học`, href: `#/class/${id}/thieunhi/${lost[0].e.id}` });
+  else if (lost.length > 1) Notif.add({ kind: "lost", title: `${lost.length} em mất chuỗi`, body: `${name} · ${fmtDate(A.date)} · ${lost.map((x) => `${x.nm} (${x.b})`).slice(0, 4).join(", ")}${lost.length > 4 ? ` và ${lost.length - 4} em khác` : ""} — có thể khôi phục trong ô Chuỗi học`, href: `#/class/${id}/thieunhi` });
+}
+
+// ============================================================
+//  XUẤT BẢNG ĐIỂM DANH (ảnh PNG) — lưu / gửi phụ huynh
+// ============================================================
+const EXPAL = { "Hiện Diện": ["#d8efe0", "#1c8a58"], "Vắng Lễ": ["#e8e2f5", "#6a54a6"], "Có Phép": ["#dcebf8", "#2c6cae"], "Báo Trễ": ["#f6ecca", "#9a7622"], "Không Phép": ["#f7e0dd", "#c04d47"], "Nghỉ Luôn": ["#e6ebe8", "#5f6f68"], "": ["#f3f7f4", "#93a099"] };
+const EXTHEME = { "": ["#1c6155", "#0b3830", "#e6c877"], green: ["#15803d", "#14532d", "#e6c877"], pink: ["#be185d", "#701a3a", "#fbcfe8"], blue: ["#1e40af", "#172554", "#bfdbfe"], gold: ["#a16207", "#5a2e0a", "#fef3c7"] };
+const EXEMO = { "Hiện Diện": "✅", "Báo Trễ": "🕒", "Có Phép": "📝", "Vắng Lễ": "🟣", "Không Phép": "❌", "Nghỉ Luôn": "⛔", "": "⚪" };
+const slug = (t) => noAccent(t).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "lop";
+function loadImg(src) { return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; }); }
+function exportRows(id) {
+  const A = CX[id].att;
+  return A.enr.map((e) => { const p = e.person || {}; return { cn: p.christian_name || "", name: p.name || p.full_name || "", st: A.assign[e.id] || "" }; });
+}
+async function renderAttendanceImage(id, noLogo) {
+  const A = CX[id].att, c = CX[id].info || {}, yr = classYearRange(c), rows = exportRows(id);
+  const FAM = '"Be Vietnam Pro", "Segoe UI", Roboto, system-ui, -apple-system, sans-serif', DISP = '"Bricolage Grotesque", "Be Vietnam Pro", system-ui, sans-serif';
+  try { if (document.fonts && document.fonts.load) await Promise.race([Promise.all([document.fonts.load(`600 25px ${FAM}`), document.fonts.load(`400 22px ${FAM}`), document.fonts.load(`800 44px ${DISP}`)]), new Promise((r) => setTimeout(r, 1500))]); } catch {}
+  const logo = noLogo ? null : await loadImg("assets/logo.png").catch(() => null);
+  const W = 1080, PAD = 48, K = rows.length > 40 ? 1 : 1.5, IW = W - PAD * 2;   // lớp rất đông -> giảm độ phân giải để nhẹ máy
+  const counts = {}; rows.forEach((r) => (counts[r.st] = (counts[r.st] || 0) + 1));
+  const pills = [{ t: `Sĩ số ${rows.length}`, bg: "#132420", fg: "#ffffff" }].concat(STATUSES.filter((st) => counts[st.v]).map((st) => ({ t: `${counts[st.v]} ${st.v}`, bg: EXPAL[st.v][0], fg: EXPAL[st.v][1] })));
+  if (counts[""]) pills.push({ t: `${counts[""]} Chưa điểm`, bg: EXPAL[""][0], fg: EXPAL[""][1] });
+  // đo pill để xếp dòng
+  const mc = document.createElement("canvas").getContext("2d"); mc.font = `600 22px ${FAM}`;
+  let px = PAD, lines = 1; pills.forEach((pl) => { pl.w = Math.ceil(mc.measureText(pl.t).width) + 36; if (px + pl.w > W - PAD) { px = PAD; lines++; } pl.x = px; pl.line = lines; px += pl.w + 10; });
+  const HEAD = 236, SUMH = lines * 54, TH = 54, RH = 62, FOOT = 92;
+  const H = HEAD + 24 + SUMH + 12 + TH + rows.length * RH + 28 + FOOT;
+  const cv = document.createElement("canvas"); cv.width = Math.round(W * K); cv.height = Math.round(H * K);
+  const x = cv.getContext("2d"); x.scale(K, K); x.textBaseline = "middle";
+  const rr = (X, Y, w, h, r) => { x.beginPath(); x.moveTo(X + r, Y); x.arcTo(X + w, Y, X + w, Y + h, r); x.arcTo(X + w, Y + h, X, Y + h, r); x.arcTo(X, Y + h, X, Y, r); x.arcTo(X, Y, X + w, Y, r); x.closePath(); };
+  const ell = (t, max) => { if (x.measureText(t).width <= max) return t; let z = t; while (z.length > 1 && x.measureText(z + "…").width > max) z = z.slice(0, -1); return z + "…"; };
+  const ls = (v) => { try { if ("letterSpacing" in x) x.letterSpacing = v; } catch {} };
+  // nền trắng
+  x.fillStyle = "#ffffff"; x.fillRect(0, 0, W, H);
+  // dải đầu: xanh rêu + quầng vàng
+  const TH3 = EXTHEME[classThemeKey(c) || currentClassTheme()] || EXTHEME[""];
+  const g = x.createLinearGradient(0, 0, W, HEAD); g.addColorStop(0, TH3[0]); g.addColorStop(1, TH3[1]); x.fillStyle = g; x.fillRect(0, 0, W, HEAD);
+  const rg = x.createRadialGradient(W - 110, 10, 10, W - 110, 10, 300); rg.addColorStop(0, "rgba(255,255,255,.22)"); rg.addColorStop(1, "rgba(255,255,255,0)"); x.fillStyle = rg; x.fillRect(0, 0, W, HEAD);
+  // logo trong vòng tròn trắng
+  const LS = 132, LX = PAD, LY = (HEAD - LS) / 2;
+  x.fillStyle = "#ffffff"; x.beginPath(); x.arc(LX + LS / 2, LY + LS / 2, LS / 2, 0, Math.PI * 2); x.fill();
+  if (logo) { const box = LS - 26, k = Math.min(box / logo.width, box / logo.height), dw = logo.width * k, dh = logo.height * k; x.drawImage(logo, LX + (LS - dw) / 2, LY + (LS - dh) / 2, dw, dh); }
+  // chữ đầu
+  const TX = LX + LS + 28, TW = W - PAD - TX;
+  x.textAlign = "left"; x.fillStyle = TH3[2]; x.font = `700 15px ${FAM}`; ls("3px"); x.fillText("BẢNG ĐIỂM DANH", TX, 66); ls("0px");
+  x.fillStyle = "#ffffff"; x.font = `800 46px ${DISP}`; x.fillText(ell(c.name || "Lớp", TW), TX, 112);
+  x.fillStyle = "rgba(255,255,255,.86)"; x.font = `500 24px ${FAM}`; x.fillText(ell(`${weekdayVN(A.date)}, ${fmtDate(A.date)} · Niên khóa ${c.long_year || (yr && yr.long) || ""}`, TW), TX, 158);
+  x.fillStyle = "rgba(255,255,255,.7)"; x.font = `400 21px ${FAM}`; x.fillText(ell([c.location, `Sĩ số ${rows.length} thiếu nhi`].filter(Boolean).join("  ·  "), TW), TX, 194);
+  // tóm tắt (pill)
+  let y = HEAD + 24;
+  x.font = `600 22px ${FAM}`; x.textAlign = "left";
+  pills.forEach((pl) => { const py = y + (pl.line - 1) * 54; x.fillStyle = pl.bg; rr(pl.x, py, pl.w, 44, 22); x.fill(); x.fillStyle = pl.fg; x.fillText(pl.t, pl.x + 18, py + 23); });
+  y += SUMH + 12;
+  // bảng
+  const cols = [
+    { k: "stt", t: "STT", x: PAD, w: 56, al: "center" },
+    { k: "cn", t: "TÊN THÁNH", x: PAD + 68, w: 206, al: "left" },
+    { k: "name", t: "HỌ VÀ TÊN", x: PAD + 286, w: 344, al: "left" },
+    { k: "date", t: "NGÀY", x: PAD + 642, w: 130, al: "center" },
+    { k: "st", t: "TRẠNG THÁI", x: PAD + 784, w: 200, al: "center" },
+  ];
+  x.fillStyle = "#f3f7f4"; rr(PAD, y, IW, TH, 12); x.fill();
+  x.fillStyle = "#5f6f68"; x.font = `700 13px ${FAM}`; ls("1.5px");
+  cols.forEach((cl) => { x.textAlign = cl.al; x.fillText(cl.t, cl.al === "center" ? cl.x + cl.w / 2 : cl.x + 12, y + TH / 2); });
+  ls("0px"); y += TH;
+  const dateTxt = fmtDate(A.date);
+  rows.forEach((r, i) => {
+    if (i % 2) { x.fillStyle = "#fafcfb"; x.fillRect(PAD, y, IW, RH); }
+    x.fillStyle = "#e9eeeb"; x.fillRect(PAD, y + RH - 1, IW, 1);
+    const cy = y + RH / 2;
+    x.textAlign = "center"; x.fillStyle = "#93a099"; x.font = `500 21px ${FAM}`; x.fillText(String(i + 1), cols[0].x + cols[0].w / 2, cy);
+    x.textAlign = "left"; x.fillStyle = "#3b4a45"; x.font = `500 22px ${FAM}`; x.fillText(ell(r.cn || "—", cols[1].w - 20), cols[1].x + 12, cy);
+    x.fillStyle = "#132420"; x.font = `600 25px ${FAM}`; if (x.measureText(r.name).width > cols[2].w - 20) x.font = `600 21px ${FAM}`; x.fillText(ell(r.name, cols[2].w - 20), cols[2].x + 12, cy);
+    x.textAlign = "center"; x.fillStyle = "#5f6f68"; x.font = `400 21px ${FAM}`; x.fillText(dateTxt, cols[3].x + cols[3].w / 2, cy);
+    const [bg, fg] = EXPAL[r.st] || EXPAL[""], lab = r.st || "Chưa điểm";
+    x.font = `700 20px ${FAM}`; const pw = Math.min(cols[4].w - 8, Math.ceil(x.measureText(lab).width) + 44), pxx = cols[4].x + (cols[4].w - pw) / 2;
+    x.fillStyle = bg; rr(pxx, cy - 19, pw, 38, 19); x.fill();
+    x.fillStyle = fg; x.beginPath(); x.arc(pxx + 17, cy, 4.5, 0, Math.PI * 2); x.fill();
+    x.textAlign = "left"; x.fillText(ell(lab, pw - 40), pxx + 28, cy + 1);
+    y += RH;
+  });
+  // chân trang
+  y += 28; x.fillStyle = "#e2e8e4"; x.fillRect(PAD, y, IW, 1);
+  const now = new Date(), hm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  x.textAlign = "left"; x.fillStyle = "#5f6f68"; x.font = `400 18px ${FAM}`; x.fillText(ell("Hiện Diện / Báo Trễ: có mặt · Có Phép: nghỉ có xin phép · Không Phép: nghỉ không phép · Vắng Lễ: vắng Thánh lễ", IW), PAD, y + 38);
+  x.textAlign = "right"; x.fillStyle = "#93a099"; x.font = `400 17px ${FAM}`; x.fillText(`Điểm Danh · Ban Giáo Lý · xuất ${hm} ${fmtDate(toISO(now))}`, W - PAD, y + 70);
+  let url;
+  try { url = cv.toDataURL("image/png"); }
+  catch (e) { if (!noLogo) return renderAttendanceImage(id, true); throw e; }   // canvas bị "taint" (mở từ file://) -> vẽ lại không logo
+  if (!url || !url.startsWith("data:image/png;base64,") || url.length < 2000) throw new Error("Máy không đủ bộ nhớ để tạo ảnh — thử lại hoặc lọc bớt danh sách");
+  return url;
+}
+async function exportSheet(id) {
+  const A = CX[id].att; if (!A || !A.enr || !A.enr.length) return toast("Chưa có danh sách để xuất");
+  openSheet(`<h3>Xuất bảng điểm danh</h3><div id="exBody"><div class="spin" style="margin:34px auto 10px"></div><p class="muted" style="text-align:center;margin:0 0 20px;font-size:13.5px">Đang tạo ảnh…</p></div>`);
+  let url;
+  try { url = await renderAttendanceImage(id); }
+  catch (e) { const b = $("exBody"); if (b) b.innerHTML = `<div class="empty" style="padding:26px"><div class="big">⚠️</div><div>Không tạo được ảnh: ${esc(e.message || e)}</div></div>`; return; }
+  CX[id]._exportUrl = url;
+  const b = $("exBody"); if (!b) return;
+  const pending = changeCount(A);
+  b.innerHTML = `<div class="ex-prev"><img src="${url}" alt="Bảng điểm danh"/></div>
+    ${pending ? `<div class="authmsg err" style="margin:12px 2px 0">${ic("bug", 16)} Còn ${pending} thay đổi chưa Xác nhận — ảnh dùng trạng thái đang hiển thị.</div>` : ""}
+    <div class="row" style="gap:10px;margin-top:14px">
+      <button class="btn gold" style="flex:1" onclick="saveExportImage('${id}',this)">${ic("download", 18)} Lưu vào máy</button>
+      <button class="btn" style="flex:1" onclick="shareExport('${id}')">${ic("share", 18)} Gửi phụ huynh</button>
+    </div>
+    <button class="btn ghost" style="margin-top:10px" onclick="copyExportText('${id}')">${ic("copy", 17)} Sao chép dạng văn bản (Zalo)</button>`;
+}
+let _sharing = false;
+async function shareExport(id) {
+  const url = CX[id]._exportUrl; if (!url) return toast("Chưa có ảnh, thử lại");
+  if (_sharing) return;
+  const c = CX[id].info || {}, A = CX[id].att;
+  const fname = `diem-danh-${slug(c.name || "")}-${A.date}.png`, title = `Điểm danh ${c.name || ""} · ${fmtDate(A.date)}`;
+  const FS = window.Capacitor?.Plugins?.Filesystem, Sh = window.Capacitor?.Plugins?.Share, native = !!(FS && Sh);
+  _sharing = true;
+  try {
+    if (native) {
+      const w = await FS.writeFile({ path: fname, data: url.split(",")[1], directory: "CACHE" });
+      await Sh.share({ title, text: title, files: [w.uri], dialogTitle: "Lưu ảnh / gửi phụ huynh" });
+    } else if (navigator.share) {
+      const blob = await (await fetch(url)).blob(), file = new File([blob], fname, { type: "image/png" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) await navigator.share({ title, files: [file] }); else throw new Error("no-files");
+    } else throw new Error("no-share");
+  } catch (e) {
+    const msg = (e && (e.message || e.name)) || "";
+    if (/cancel|abort|in progress/i.test(msg)) return;
+    if (native) toast("Không chia sẻ được: " + (msg || "lỗi không rõ"), 3000);   // trên app: KHÔNG giả vờ tải về
+    else { try { const a = document.createElement("a"); a.href = url; a.download = fname; document.body.appendChild(a); a.click(); a.remove(); toast("Đã tải ảnh về máy"); } catch { toast("Không chia sẻ được: " + msg); } }
+  } finally { _sharing = false; }
+}
+function copyExportText(id) {
+  const A = CX[id].att, c = CX[id].info || {}, yr = classYearRange(c), rows = exportRows(id);
+  const counts = {}; rows.forEach((r) => (counts[r.st] = (counts[r.st] || 0) + 1));
+  const sum = STATUSES.map((st) => (counts[st.v] ? `${EXEMO[st.v]} ${counts[st.v]} ${st.v}` : "")).filter(Boolean).join(" · ");
+  const lines = [`📋 ĐIỂM DANH — ${c.name || ""}`, `${weekdayVN(A.date)}, ${fmtDate(A.date)} · Niên khóa ${c.long_year || (yr && yr.long) || ""}`, `Sĩ số ${rows.length}${sum ? " · " + sum : ""}`, "————————"];
+  rows.forEach((r, i) => lines.push(`${i + 1}. ${EXEMO[r.st] || "⚪"} ${[r.cn, r.name].filter(Boolean).join(" ")} — ${r.st || "Chưa điểm"}`));
+  copyText(lines.join("\n"));
+}
+async function saveExportImage(id, btn) {
+  const url = CX[id]._exportUrl; if (!url) return toast("Chưa có ảnh, thử lại");
+  if (btn) btn.classList.add("busy");
+  try { const c = CX[id].info || {}, A = CX[id].att; await saveDataUrl(url, `diem-danh-${slug(c.name || "")}-${A.date}.png`, "image/png"); }
+  catch (e) { toast("Không lưu được: " + (e.message || e), 3000); } finally { if (btn) btn.classList.remove("busy"); }
+}
+window.exportSheet = exportSheet; window.shareExport = shareExport; window.copyExportText = copyExportText; window.saveExportImage = saveExportImage;
 
 
 // ============================================================
@@ -1069,10 +1867,10 @@ async function searchScreen(q) {
 function render() {
   if (!S.user) return loginScreen();
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
-  const [r, a, b] = parts;
+  const [r, a, b, c] = parts;
   if (!r || r === "home") return homeScreen();
   if (r === "classes") return classesScreen();
-  if (r === "class") return classScreen(a, b);
+  if (r === "class") return classScreen(a, b, c);
   if (r === "teachers") return teachersScreen();
   if (r === "person") return personScreen(a, b);
   if (r === "me") return meScreen();
@@ -1086,11 +1884,17 @@ window.addEventListener("hashchange", render);
 // ============================================================
 async function boot() {
   try { S.year = await BGL.currentYear(); } catch { S.year = null; }
+  let assignOk = false;
   try {
     const t = await BGL.teachingByPerson((S.user || {}).person_id);
-    S.myAssignments = t.filter((x) => x.classroom && x.classroom.year === (S.year && S.year.year));
+    const cur = S.year ? Number(S.year.year) : classYearRange(null).year;
+    S.myAssignments = t.filter((x) => x.classroom && Number(x.classroom.year) === cur);
     S.myClassId = S.myAssignments[0] && S.myAssignments[0].classroom && S.myAssignments[0].classroom.id;
+    assignOk = true;
   } catch { S.myAssignments = []; S.myClassId = null; }
+  // màu lớp: chỉ ghi nhớ khi tải phân công thành công (lỗi mạng tạm thời không làm mất màu đã lưu)
+  if (assignOk) applyClassTheme(classThemeKey(S.myAssignments[0] && S.myAssignments[0].classroom), true);
+  else applyClassTheme(store.get("bgl-class-theme", ""), false);
   startPolling();
 }
 // Sau đăng nhập vào thẳng lớp mình dạy (nếu có)
@@ -1114,23 +1918,34 @@ async function pollTick() {
     const id = parts[1], tab = parts[2] || "thieunhi";
     if (tab === "thieunhi") {
       const fresh = await BGL.classroomEnrollments(id);
-      if (JSON.stringify(fresh) !== JSON.stringify(CX[id].enr)) { CX[id].enr = fresh; if ($("tabBody")) tabStudents(id); }
+      if (JSON.stringify(fresh) !== JSON.stringify(CX[id].enr)) { CX[id].enr = fresh; if ($("tabBody")) tabStudents(id); loadClassAttendance(id, true).then(() => paintStreaks(id)); }
     } else if (tab === "diemdanh") {
-      const A = CX[id].att; if (!A || !A.loaded) return;
+      const A = CX[id].att; if (!A || !A.loaded || A.saving) return;      // đang gửi -> không đồng bộ chen ngang
       const recs = await BGL.attendancesByClass(id, A.date);
+      if (A.saving) return;
       const freshEx = {}; recs.forEach((r) => { freshEx[r.attendable_id] = { id: r.id, status: r.status }; });
-      if (JSON.stringify(freshEx) === JSON.stringify(A.existing)) return;   // không đổi
-      const hadDirty = A.dirty.size > 0;
-      mergeFromServer(A, freshEx);                    // luôn merge để Xác nhận không ghi đè web
-      if (!hadDirty) { if ($("attArea")) renderColumn(id); }                // rảnh -> reload luôn
-      else if (!(A.syncSnooze && Date.now() < A.syncSnooze)) syncPrompt(id); // đang làm dở -> hỏi
-      else if ($("attArea")) renderColumn(id);
+      const same = Object.keys(freshEx).length === Object.keys(A.existing).length && Object.keys(freshEx).every((k) => A.existing[k] && A.existing[k].status === freshEx[k].status && A.existing[k].id === freshEx[k].id);
+      if (same) return;                                                     // không đổi
+      // Xung đột thật = em mình đang sửa (dirty) mà web vừa đổi sang giá trị KHÁC cái mình chọn
+      const conflicts = [];
+      A.dirty.forEach((k) => {
+        const sv = freshEx[k] ? freshEx[k].status : "", mine = A.assign[k] || "", old = A.existing[k] ? A.existing[k].status : "";
+        if (sv === mine) A.dirty.delete(k);                                  // web đã có đúng giá trị mình chọn -> hết chờ gửi
+        else if (sv !== old) conflicts.push(k);
+      });
+      let changed = 0; Object.keys(Object.assign({}, freshEx, A.existing)).forEach((k) => { const a = freshEx[k] && freshEx[k].status, b = A.existing[k] && A.existing[k].status; if (a !== b && !A.dirty.has(k)) changed++; });
+      mergeFromServer(A, freshEx);                                          // luôn merge để Xác nhận không ghi đè web
+      if ($("attArea")) renderColumn(id);
+      if (!conflicts.length) { if (changed) toast(`Đã đồng bộ ${changed} thay đổi từ web`, 1800); return; }   // êm, không hỏi
+      if (!(A.syncSnooze && Date.now() < A.syncSnooze)) syncPrompt(id, conflicts);
     }
   } catch {}
 }
-function syncPrompt(id) {
-  openSheet(`<h3>Web vừa có thay đổi</h3>
-    <p class="muted" style="margin:-6px 2px 16px;font-size:14px">Dữ liệu điểm danh trên web vừa được cập nhật. Bạn đang có thay đổi chưa lưu — tải lại để nhận thông tin mới nhất, hoặc để sau để tiếp tục.</p>
+function syncPrompt(id, conflicts) {
+  const A = CX[id].att, names = (conflicts || []).map((k) => { const e = (A.enr || []).find((x) => String(x.id) === String(k)); const p = (e && e.person) || {}; return p.name || p.full_name || ""; }).filter(Boolean);
+  const list = names.slice(0, 3).join(", ") + (names.length > 3 ? ` và ${names.length - 3} em khác` : "");
+  openSheet(`<h3>Web vừa sửa em bạn đang điểm</h3>
+    <p class="muted" style="margin:-6px 2px 16px;font-size:14px;line-height:1.5">Trên web vừa đổi trạng thái của <b style="color:var(--ink)">${esc(list || "một số em")}</b> khác với lựa chọn của bạn. Các em khác đã được đồng bộ. <b style="color:var(--ink)">Tải lại</b> để lấy theo web, hoặc <b style="color:var(--ink)">Để sau</b> để giữ lựa chọn của bạn rồi Xác nhận.</p>
     <div class="pickgrid">
       <button class="pickbtn clear" onclick="syncLater('${id}')">Để sau</button>
       <button class="pickbtn" style="grid-column:span 2;justify-content:center;color:var(--brand-2)" onclick="syncReload('${id}')">${ic("check", 18)} Tải lại ngay</button>

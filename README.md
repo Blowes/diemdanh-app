@@ -1,10 +1,10 @@
-# Ban Giáo Lý — App di động (Android + iOS)
+# Điểm Danh (Ban Giáo Lý) — App di động (Android + iOS)
 
 App wrap chức năng web `bglmautam.com` bằng **Capacitor** — **1 source code** build ra cả **APK** (Android) và **IPA** (iPhone). Giao diện native, gọi thẳng API `api.bglmautam.com` để bạn thêm tính năng ngay trong app, không cần deploy lại web production.
 
-- **App ID:** `com.bglmautam.app` · **Tên:** Ban Giáo Lý
+- **App ID:** `com.bglmautam.app` · **Tên:** Điểm Danh · **Phiên bản:** 1.1 (versionCode 2)
 - **Frontend:** HTML/CSS/JS thuần trong `www/` (không framework → build nhẹ, nhanh)
-- **Theme:** Sáng / Tối / Theo hệ thống (đổi trong tab **Tôi**)
+- **Theme:** Sáng / Tối (hệ slate) / Theo hệ thống (đổi trong tab **Tôi**) · **màu chủ đạo theo lớp đang dạy** (khăn): Khai Tâm hồng · Rước Lễ xanh lá · Thêm Sức xanh dương · Bao Đồng vàng
 
 ---
 
@@ -31,9 +31,21 @@ UX kiểu app-native (bottom-nav), khác hẳn web, giữ 100% chức năng gố
    - **Tùy chỉnh** mapping trong *Tôi → Cử chỉ quẹt* (hoặc nút ⚙ khi quẹt), có Hoàn tác.
    - Quẹt xong → tự sang chế độ Cột để soát lại rồi Xác nhận.
 
+### Mới trong v1.1
+- **Logo & tên app**: icon launcher / splash Android dùng logo giáo xứ, tên hiển thị **Điểm Danh**, màn khởi động có logo.
+- **Niên khóa theo lớp**: mở lớp năm cũ từ *Hành trình* hiện đúng niên khóa của lớp (không còn hiện năm hiện tại); lịch Chúa Nhật cũng theo năm đó.
+- **Xuất bảng điểm danh** (tab Điểm danh): khi điểm đủ cả lớp hoặc vừa Xác nhận xong, hiện ô vàng lấp lánh → ảnh PNG (Tên thánh · Họ tên · Ngày · Trạng thái, tóm tắt, màu theo lớp) → *Lưu ảnh / Gửi phụ huynh* (share sheet, Zalo…) hoặc *Sao chép dạng văn bản*.
+- **Chuỗi học** (ô thứ 6 trong Chuyên cần, đốm lửa kiểu streak): số buổi học liên tiếp. Cấp độ lửa: 3 **Hiền lành** (đỏ) · 5 **Ngoan** (xanh, to hơn) · 7 **Hy sinh** (7 màu) · 10 **Dấn thân** (7 màu + quầng sáng, cao nhất); từ cấp 3 có tàn lửa bay. Nút **Khoe chuỗi** tạo ảnh chúc mừng (avatar · tên thánh · họ tên · ngọn lửa lớn · số buổi) để gửi phụ huynh. Chuỗi tính mọi ngày đã điểm danh (kể cả ngày sau hôm nay). Tuần **cả lớp không điểm danh** = tuần nghỉ, không mất chuỗi. Bấm vào xem lịch sử, *Khôi phục chuỗi*, đánh dấu *Tuần nghỉ cả lớp* / *Bỏ qua ngày này*. Quy tắc cộng/giữ/mất theo trạng thái: *Tôi → Tiện ích → Chuỗi học* (mặc định: Hiện Diện, Báo Trễ cộng · Vắng Lễ giữ · Có Phép, Không Phép, Nghỉ Luôn mất). Dữ liệu điều chỉnh lưu trên máy.
+- **Cột điểm danh**: bộ lọc theo trạng thái (Tất cả · Chưa điểm · Hiện Diện · …) và **Đặt tất cả** — gán 1 trạng thái cho toàn bộ em đang hiển thị (ví dụ lọc *Chưa điểm* → Đặt tất cả *Hiện Diện*), vẫn cần Xác nhận để gửi.
+- **Nền chính** là ảnh rừng thông hoàng hôn (`www/assets/bg-login.jpg`) cố định sau toàn app, phủ mờ theo theme sáng/tối và nhuộm theo màu lớp; appbar/nav kính mờ.
+- **Font nhúng sẵn** (`www/assets/fonts`, Be Vietnam Pro + Bricolage Grotesque, latin + vietnamese) — không phụ thuộc mạng, không lỗi font khi offline.
+- **Thông báo trong app** (chuông góc phải, badge số chưa đọc): lưu điểm danh thành công / lỗi, đạt mốc chuỗi (3, 5, 10, 15…), mất chuỗi; bấm nhảy tới đúng lớp / thiếu nhi; *Xoá tất cả*. Lưu trên máy theo tài khoản.
+
 ## 2. Thêm tính năng mới
 
 Toàn bộ API ở `www/js/api.js` (`window.BGL`). Sửa `www/js/app.js`, chạy `npx cap sync` rồi build lại — **không đụng web production**.
+
+> Lưu ý API: tài khoản GLV chỉ thấy điểm danh của **niên khóa hiện tại** (năm cũ trả về rỗng); `v1/academic_years` (danh sách) bị 403 nên năm cũ dùng khoảng 20/08 → 20/06 suy từ `classroom.year`.
 
 ## 2b. Đã research — chức năng web có thể thêm vào app
 
@@ -107,6 +119,10 @@ cd android
 ```
 
 > **Lỗi `PKIX path building failed` khi gradle tải thư viện?** JDK homebrew đôi khi thiếu root CA. Đã kèm sẵn truststore `android/bgl-truststore.jks` (root CA hệ thống) và cấu hình trong `android/gradle.properties`. Nếu vẫn lỗi, đặt `JAVA_HOME` đúng thư mục JDK thật (có `lib/security/cacerts`).
+
+### Android → APK release (đã ký)
+Khoá ký nằm ở `android/keystore/diemdanh.jks` + mật khẩu trong `android/keystore.properties` (**không commit**, hãy sao lưu 2 file này — mất khoá là không cập nhật được app đã cài). Có 2 file đó thì `./gradlew assembleRelease` ra bản đã ký `app/build/outputs/apk/release/app-release.apk`; thiếu thì ra bản unsigned (không cài được).
+Bản release ký khác bản debug → cài lần đầu phải **gỡ bản debug** trước (mất ảnh/cài đặt lưu trên máy → Sao lưu ở Tôi → Tiện ích rồi Nhập lại).
 
 ### iOS → IPA
 Cần Mac có Xcode:

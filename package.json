@@ -1,7 +1,7 @@
 {
   "name": "bglapp",
   "version": "1.0.0",
-  "description": "Ban Giáo Lý - mobile app (Android + iOS) wrapping bglmautam.com",
+  "description": "Điểm Danh - app điểm danh Ban Giáo Lý (Android + iOS) dùng API bglmautam.com",
   "private": true,
   "scripts": {
     "sync": "cap sync",

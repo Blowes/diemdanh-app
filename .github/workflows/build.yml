@@ -26,7 +26,7 @@ jobs:
       - run: cd android && chmod +x gradlew && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: BanGiaoLy-APK
+          name: DiemDanh-APK
           path: android/app/build/outputs/apk/debug/*.apk
 
   # --------------------- iOS (IPA unsigned) ---------------------

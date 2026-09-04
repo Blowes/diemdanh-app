@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Nền splash khi máy ở chế độ tối — khớp canvas dark (#20262D) -->
+    <color name="splash_bg">#20262D</color>
+</resources>

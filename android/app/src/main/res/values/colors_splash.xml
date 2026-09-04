@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Nền splash hệ thống (Android 12+) — khớp nền app sáng -->
+    <color name="splash_bg">#FFFFFF</color>
+</resources>
