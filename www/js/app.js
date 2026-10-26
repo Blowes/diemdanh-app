@@ -771,7 +771,8 @@ async function classScreen(id, tab, extra) {
     active != null ? `<span class="ipill">${ic("users", 16)} ${active} đang học</span>` : "",
     oldYear ? `<span class="ipill gold">${ic("cal", 16)} Lớp năm cũ · dữ liệu lịch sử</span>` : "",
   ].join("");
-  screen(appbar({ title: c.name, sub: longYear ? `Niên khóa ${longYear}` : "", back: "#/classes", bell: true }) +
+  // ⋮ In / Xuất bảng (www/js/exports.js) — chỉ hiện cho GLV phụ trách lớp / Ban Điều Hành
+  screen(appbar({ title: c.name, sub: longYear ? `Niên khóa ${longYear}` : "", back: "#/classes", bell: true, action: window.ClassExport ? ClassExport.menuBtn(id) : "" }) +
     `<main><div class="wrap">
       ${pills ? `<div class="pills">${pills}</div>` : ""}
       ${CX[id].limited ? `<div class="note"><span class="note-ic">${ic("key", 18)}</span><div><b>Chỉ xem thông tin chung</b><div>Tài khoản của bạn không được xem chi tiết lớp này. Danh sách thiếu nhi và điểm danh chỉ mở cho GLV phụ trách lớp.</div></div></div>` : ""}
@@ -1753,7 +1754,7 @@ window.debugSheet = debugSheet; window.toggleDebug = toggleDebug; window.clearDe
 //  (ảnh trong localStorage, tài khoản trong Keystore, cookie, cài đặt). Cài xong APK tự xoá.
 //  iOS / web: chỉ báo có bản mới + mở trang phát hành.
 // ============================================================
-const UPDATE_REPO = "Blowes/diemdanh-app", APP_VERSION = "1.4", UPD_KEY = "bgl-update-pending";
+const UPDATE_REPO = "Blowes/diemdanh-app", APP_VERSION = "1.5", UPD_KEY = "bgl-update-pending";
 const _upd = () => window.Capacitor?.Plugins?.AppUpdate;
 // Số thay đổi điểm danh chưa Xác nhận (chỉ nằm trong bộ nhớ) — cài bản mới sẽ đóng app làm mất chúng
 const updUnsent = () => { try { return Object.values(CX).reduce((n, c) => { const A = c && c.att; return n + (A && A.loaded ? (A.saving ? Math.max(1, changeCount(A)) : changeCount(A)) : 0); }, 0); } catch { return 0; } };
