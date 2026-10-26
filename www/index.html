@@ -684,8 +684,20 @@
     .net-pill.on{opacity:1;transform:translate(-50%,0)}
     .net-pill .dot{width:7px;height:7px;border-radius:50%;background:var(--danger);flex:none}
     :root.no-fx .net-pill{transition:none}
-    .upd-home-n{margin:10px 0 0;padding-left:18px;font-size:13px;line-height:1.45;color:var(--ink-soft)}
-    .upd-home-n li+li{margin-top:2px}
+    .upd-bar{position:relative;overflow:hidden;width:100%;display:flex;align-items:center;gap:10px;margin:2px 0 4px;padding:10px 12px 10px 10px;border:0;border-radius:999px;
+      font:inherit;font-size:14px;color:#fff;text-align:left;cursor:pointer;
+      background:linear-gradient(110deg,#7c3aed 0%,#4f46e5 45%,#0ea5e9 100%);
+      box-shadow:0 10px 24px -10px rgba(79,70,229,.75),inset 0 1px 0 rgba(255,255,255,.35);transition:transform .35s var(--spring)}
+    .upd-bar:active{transform:scale(.97)}
+    .upd-bar::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.35) 50%,transparent 70%);transform:translateX(-120%);animation:updShine 3.2s ease-in-out infinite}
+    :root.no-fx .upd-bar::after{display:none}
+    @keyframes updShine{0%,55%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
+    .upd-bar-ic{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.22);animation:updBob 1.8s ease-in-out infinite}
+    :root.no-fx .upd-bar-ic{animation:none}
+    @keyframes updBob{0%,100%{transform:translateY(0)}50%{transform:translateY(2px)}}
+    .upd-bar-t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+    .upd-bar-t b{font-weight:800}
+    .upd-bar-go{flex:none;display:inline-flex;align-items:center;gap:2px;padding:5px 10px 5px 12px;border-radius:999px;background:#fff;color:#4f46e5;font-size:13px;font-weight:800}
     .upd-home-ok{display:flex;align-items:center;justify-content:center;gap:6px;font-size:12.5px;padding:2px 0 6px}
     .ask-head{appearance:none;background:none;border:0;margin:0;padding:2px 0;width:100%;display:flex;align-items:center;gap:8px;text-align:left;color:inherit;font:inherit;cursor:pointer}
     .ask-sub{display:block;font-size:12.5px;margin-top:2px}

@@ -206,7 +206,7 @@ const IC = {
   book: '<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M6 3v16"/>',
   users: '<circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 5.5a3 3 0 0 1 0 5.8"/><path d="M17.5 14.5A5.5 5.5 0 0 1 21 20"/>',
   user: '<circle cx="12" cy="8" r="3.6"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>',
-  kids: '<circle cx="12" cy="13" r="8"/><path d="M11.2 5.1c.1-1.7 1.6-2.9 3.4-2.6"/><path d="M9 12h.01M15 12h.01"/><path d="M9.5 15.6c1.4 1.3 3.6 1.3 5 0"/>',   // mặt em nhỏ (chỏm tóc) — tab Học sinh
+  kids: '<circle cx="12" cy="13" r="8"/><path d="M11.2 5.1c.1-1.7 1.6-2.9 3.4-2.6"/><path d="M9 12h.01M15 12h.01"/><path d="M9.5 15.6c1.4 1.3 3.6 1.3 5 0"/>',   // mặt em nhỏ (chỏm tóc) — thiếu nhi
   back: '<path d="M15 5l-7 7 7 7"/>',
   check: '<path d="M4 12.5l5 5L20 6"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/>',
@@ -307,7 +307,8 @@ function refreshBell() {
   _bellLast = n;
 }
 // ---------- thanh tab nổi: tạo 1 lần, bong bóng trượt giữa các tab, kéo ngang để chuyển ----------
-const TABS = [["home", "Trang chủ", "#/home", "home"], ["book", "Lớp học", "#/classes", "classes"], ["kids", "Học sinh", "#/students", "students"], ["users", "Giáo lý viên", "#/teachers", "teachers"], ["user", "Tôi", "#/me", "me"]];
+// 4 tab: tab Học sinh cũ đã GỘP vào Lớp học (#/students -> #/classes, xem render())
+const TABS = [["home", "Trang chủ", "#/home", "home"], ["book", "Lớp học", "#/classes", "classes"], ["users", "Giáo lý viên", "#/teachers", "teachers"], ["user", "Tôi", "#/me", "me"]];
 function tabbarEl() {
   let tb = $("tabbar"); if (tb) return tb;
   tb = document.createElement("nav"); tb.id = "tabbar"; tb.className = "tabbar"; tb.setAttribute("role", "tablist");
@@ -365,10 +366,14 @@ window.tabTo = tabTo;
 //  Xong lúc ở xa -> xanh ✓ ~0,7s rồi trượt xuống biến mất · lỗi -> đỏ "!" rồi ẩn (mở tab sẽ thấy hộp lỗi + Thử lại).
 //  Đang đứng ở tab -> không badge, thanh tiến độ trên cùng chạy theo % của tab.
 // Treo (mạng chết, không trả cũng không lỗi): IDLE_MS không có tiến độ -> coi là lỗi (hộp lỗi + Thử lại), kết quả về muộn bị bỏ.
+// Nguồn chạy NỀN của 1 tab khác (src.tab, vd "students" = tên thiếu nhi -> icon Lớp học): badge hiện ở icon tab đó,
+//  src.here = các màn coi như "đang đứng" (không badge) · không chiếm thanh trên cùng (thanh đó của nguồn chính chủ màn).
 const TabLoad = {
   st: {}, src: {}, cur: null, gen: 0,
   DEF_MS: 2000, CAP: 90, TICK: 120, OK_MS: 700, ERR_MS: 1300, OUT_MS: 300, FRESH_MS: 15000, IDLE_MS: 45000, MS_KEY: "bgl-tabload-ms",
-  def(key, src) { this.src[key] = src; },                 // src: { data() -> cache hiện có | null, fetch(prog) -> Promise, save(data) }
+  def(key, src) { this.src[key] = src; },                 // src: { data() -> cache hiện có | null, fetch(prog) -> Promise, save(data), silent()?, tab?, here? }
+  tabOf(key) { const s = this.src[key]; return (s && s.tab) || key; },   // icon tab mang badge của nguồn này
+  isHere(key) { const c = this.cur, s = this.src[key]; return c != null && (c === key || c === this.tabOf(key) || !!(s && Array.isArray(s.here) && s.here.includes(c))); },
   running(key) { const s = this.st[key]; return !!(s && s.running); },
   takeErr(key) { const s = this.st[key], e = s && s.err; if (s) s.err = null; return e || null; },   // lỗi chưa ai báo (lấy 1 lần)
   estMs(key) { const m = store.get(this.MS_KEY, {}), v = Number(m && m[key]); return v > 0 ? v : this.DEF_MS; },
@@ -383,7 +388,7 @@ const TabLoad = {
     const has = src.data() != null;
     if (s && s.err && !has) return null;
     if (has && s && s.okAt && Date.now() - s.okAt < this.FRESH_MS) return null;
-    return this.run(key, src.fetch, { silent: typeof src.silent === "function" ? !!src.silent() : has, save: src.save });   // tab tự quyết (vd Học sinh: còn thiếu -> hiện %)
+    return this.run(key, src.fetch, { silent: typeof src.silent === "function" ? !!src.silent() : has, save: src.save });   // nguồn tự quyết (vd tên thiếu nhi: còn thiếu -> hiện %)
   },
   run(key, fn, o = {}) {
     const old = this.st[key]; if (old && old.running) return old.p;
@@ -412,6 +417,7 @@ const TabLoad = {
     clearInterval(s.t); s.running = false;
     if (err) s.err = err; else { s.err = null; s.pct = 100; s.okAt = s.redo ? 0 : Date.now(); s.redo = false; this.saveMs(key, Date.now() - s.startedAt); }
     if (this.cur === key) { progEnd(key); this.badge(key, null); }   // đang ở tab: chỉ thanh trên cùng chạy nốt
+    else if (this.isHere(key)) this.badge(key, null);                // nguồn nền của màn đang đứng: màn tự báo, không nháy
     else if (!s.silent) this.flash(key, err ? "err" : "ok");
     else this.badge(key, null);
   },
@@ -425,15 +431,14 @@ const TabLoad = {
   focus(k) {
     k = k || null; const prev = this.cur; if (prev === k) return; this.cur = k;
     if (prev) progDrop(prev);
-    if (k) this.unflash(k);
+    if (k) Object.keys(this.st).forEach((x) => { if (this.isHere(x)) this.unflash(x); });
     Object.keys(this.st).forEach((x) => this.sync(x));
   },
   sync(key) {
     const s = this.st[key]; if (!s) return;
-    const here = this.cur === key;
-    if (s.running && here) progSet(s.pct, key);
+    if (s.running && this.cur === key) progSet(s.pct, key);   // thanh trên cùng: chỉ nguồn chính chủ màn (nguồn nền thì không)
     if (s.flash) return;                                   // đang nháy ✓ / ! -> hẹn giờ tự ẩn
-    this.badge(key, s.running && !s.silent && !here ? Math.floor(s.pct) + "%" : null, "");
+    this.badge(key, s.running && !s.silent && !this.isHere(key) ? Math.floor(s.pct) + "%" : null, "");
   },
   flash(key, kind) {
     const s = this.st[key]; if (!s) return; this.unflash(key);
@@ -448,10 +453,11 @@ const TabLoad = {
   },
   unflash(key) { const s = this.st[key]; if (!s) return; clearTimeout(s.ft); s.ft = null; if (s.flash) { s.flash = null; this.badge(key, null); } },
   badge(key, text, cls) {
-    const a = this.tabEl(key); if (!a) return null;
+    const a = this.tabEl(this.tabOf(key)); if (!a) return null;
     let b = a.querySelector(".tb-pct");
-    if (text == null) { if (b) b.remove(); return null; }
+    if (text == null) { if (b && (!b.dataset.k || b.dataset.k === key)) b.remove(); return null; }   // badge của nguồn khác cùng icon: không xoá hộ
     if (!b) { b = document.createElement("b"); a.appendChild(b); }
+    if (b.dataset.k !== key) b.dataset.k = key;
     const c = "tb-pct" + (cls ? " " + cls : ""); if (b.className !== c) b.className = c;
     if (b.textContent !== text) b.textContent = text;
     return b;
@@ -640,7 +646,7 @@ async function bioLogin() {
 window.doLogin = doLogin; window.bioLogin = bioLogin;
 
 // Bỏ hết dữ liệu của tài khoản cũ (đăng xuất / đăng nhập tài khoản khác): cache các tab, lượt tải nền + badge mọi tab,
-// mục Học sinh (students.js tự dọn cache/observer/hẹn giờ), lớp & người đã nhớ — người đăng nhập sau không thấy gì của người trước
+// tên thiếu nhi của tab Lớp học (students.js tự dọn cache/observer/hẹn giờ), lớp & người đã nhớ — người đăng nhập sau không thấy gì của người trước
 function resetAccountData() {
   S._classes = S._teachers = S._students = S._studentsMeta = null; S.myAssignments = []; S.myClassId = null;
   TF.g = "*"; TF.q = "";                                  // lọc tab GLV
@@ -734,8 +740,21 @@ async function tabScreen(key, o) {
     else fail(e);
   }
 }
-TabLoad.def("classes", { data: () => S._classes, fetch: () => BGL.classrooms(S.year && S.year.year), save: (list) => { S._classes = list; } });
+// số lớp / thiếu nhi: nhanh -> luôn im lặng (badge % ở icon Lớp học chỉ dành cho lượt tải TÊN dài — students.js)
+TabLoad.def("classes", { data: () => S._classes, silent: () => true, fetch: () => BGL.classrooms(S.year && S.year.year), save: (list) => { S._classes = list; } });
+// Tab Lớp học = màn GỘP (thẻ lớp + số thiếu nhi chính xác + tên thiếu nhi dò ở nền) nằm ở js/students.js (nạp sau app.js).
+// File đó lỗi / chưa nạp được -> danh sách lớp đơn giản bên dưới, app vẫn chạy.
 function classesScreen() {
+  const t = NAV;
+  if (typeof window.studentsScreen === "function") {
+    const fail = (e) => { try { console.error(e); } catch {} if (!stale(t)) classesList(); };
+    try { return Promise.resolve(window.studentsScreen()).catch(fail); } catch (e) { return fail(e); }
+  }
+  // trang còn đang nạp (students.js chưa chạy tới) -> chờ nạp xong rồi mở
+  if (document.readyState === "loading") { skeleton("classes"); document.addEventListener("DOMContentLoaded", () => { if (!stale(t)) classesScreen(); }, { once: true }); return; }
+  return classesList();
+}
+function classesList() {
   return tabScreen("classes", {
     title: "Lớp học", what: "danh sách lớp",
     draw: (list) => screen(appbar({ title: "Lớp học", bell: true, action: `<button class="act" onclick="go('#/search')">${ic("search", 20)}</button>` }) +
@@ -783,7 +802,7 @@ async function classScreen(id, tab, extra) {
   screen(appbar({ title: c.name, sub: longYear ? `Niên khóa ${longYear}` : "", back: "#/classes", bell: true, action: window.ClassExport ? ClassExport.menuBtn(id) : "" }) +
     `<main><div class="wrap">
       ${pills ? `<div class="pills">${pills}</div>` : ""}
-      ${CX[id].limited ? `<div class="note"><span class="note-ic">${ic("key", 18)}</span><div><b>Chỉ xem thông tin chung</b><div>Tài khoản của bạn không được xem chi tiết lớp này. Danh sách thiếu nhi và điểm danh chỉ mở cho GLV phụ trách lớp.</div></div></div>` : ""}
+      ${CX[id].limited ? `<div class="note"><span class="note-ic">${ic("key", 18)}</span><div><b>Chỉ xem thông tin chung</b><div>Tài khoản của bạn không được xem chi tiết lớp này. Tên thiếu nhi bên dưới được gom dần qua ô tìm kiếm; điểm danh chỉ mở cho GLV phụ trách lớp.</div></div></div>` : ""}
       ${seg("class", segs.map(([k, l]) => [k, l, `go('#/class/${id}/${k}')`]), Math.max(0, segs.findIndex((s) => s[0] === tab)), "margin-bottom:16px")}
       <div id="tabBody"><div class="spin"></div></div>
     </div></main>`, "classes");
@@ -795,6 +814,8 @@ async function classScreen(id, tab, extra) {
 // ---------- Tab: Thiếu nhi ----------
 async function tabStudents(id, focusEid) {
   const t = NAV;
+  const lim = typeof window.limitedClassBody === "function" ? window.limitedClassBody : null;   // lớp không xem được: tên đã dò (students.js)
+  if (lim && CX[id] && CX[id].limited) return lim(id);
   try {
     const enr = CX[id].enr || (CX[id].enr = await BGL.classroomEnrollments(id));
     if (stale(t)) return;
@@ -810,7 +831,7 @@ async function tabStudents(id, focusEid) {
     loadClassAttendance(id).then(() => paintStreaks(id));
     // Đến từ thông báo -> cuộn tới & làm nổi thẻ thiếu nhi
     if (focusEid) setTimeout(() => { const el = $("stu-" + focusEid); if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("hl"); setTimeout(() => el.classList.remove("hl"), 2500); } }, 60);
-  } catch (e) { if (stale(t)) return; const b = $("tabBody"); if (b) b.innerHTML = errBox(e.message); }
+  } catch (e) { if (stale(t)) return; if (e && e.status === 403 && lim) return lim(id); const b = $("tabBody"); if (b) b.innerHTML = errBox(e.message); }
 }
 // ---------- Sinh nhật tuần này: 7 ngày tới (tính cả hôm nay), qua cả cuối tháng / cuối năm · 29/2 -> 28/2 năm không nhuận ----------
 function birthdaysSoon(enr, now) {
@@ -932,7 +953,7 @@ async function setResult(cid, eid, r) {
   closeSheet(); progStart(); haptic();
   try {
     await BGL.updateEnrollment(eid, { result: r }); toast("Đã cập nhật: " + r); CX[cid].enr = null;
-    (S._students || []).forEach((x) => { if (String(x.id) === String(eid)) x.result = r; });   // tab Học sinh: sửa ngay em này + lần vào sau tải lại
+    (S._students || []).forEach((x) => { if (String(x.id) === String(eid)) x.result = r; });   // tên đã dò (tab Lớp học): sửa ngay em này + lần vào sau tải lại
     TabLoad.invalidate("students"); TabLoad.invalidate("classes");                            // số liệu thẻ lớp cũng đổi
     await tabStudents(cid);
   }
@@ -1550,7 +1571,7 @@ function rememberPerson(p, extra) {
   PEOPLE[k] = Object.assign({}, PEOPLE[k] || {}, clean, extra || {});
 }
 const isMe = (id) => S.user && S.user.person_id != null && String(S.user.person_id) === String(id);
-// Mở hồ sơ từ 1 danh sách thuộc tab khác (vd. Học sinh): nhớ tab cần sáng cho hồ sơ người đó (cả khi chuyển Cá nhân ⇄ Hành trình)
+// Mở hồ sơ từ 1 danh sách thuộc tab khác (vd. thiếu nhi ở tab Lớp học): nhớ tab cần sáng cho hồ sơ người đó (cả khi chuyển Cá nhân ⇄ Hành trình)
 // — không gọi qua đây (thẻ GLV, tìm kiếm…) thì sáng "teachers" như cũ · về màn gốc của 1 tab là quên
 let PERSON_NAV = null;   // { id, key }
 function openPerson(id, navKey) {
@@ -1870,7 +1891,7 @@ window.debugSheet = debugSheet; window.toggleDebug = toggleDebug; window.clearDe
 //  (ảnh trong localStorage, tài khoản trong Keystore, cookie, cài đặt). Cài xong APK tự xoá.
 //  iOS / web: chỉ báo có bản mới + mở trang phát hành.
 // ============================================================
-const UPDATE_REPO = "Blowes/diemdanh-app", APP_VERSION = "1.8", UPD_KEY = "bgl-update-pending";
+const UPDATE_REPO = "Blowes/diemdanh-app", APP_VERSION = "1.9", UPD_KEY = "bgl-update-pending";
 const _upd = () => window.Capacitor?.Plugins?.AppUpdate;
 // Số thay đổi điểm danh chưa Xác nhận (chỉ nằm trong bộ nhớ) — cài bản mới sẽ đóng app làm mất chúng
 const updUnsent = () => { try { return Object.values(CX).reduce((n, c) => { const A = c && c.att; return n + (A && A.loaded ? (A.saving ? Math.max(1, changeCount(A)) : changeCount(A)) : 0); }, 0); } catch { return 0; } };
@@ -2157,23 +2178,28 @@ async function updAuto() {
     paintHomeUpd();
   } catch {} finally { _updAutoBusy = false; }
 }
-// 2 dòng đầu của ghi chú phát hành (bỏ markdown) cho thẻ Trang chủ
+// 2 dòng đầu của ghi chú phát hành (bỏ markdown) cho thẻ Trang chủ — giữ ĐỦ câu (thẻ tự kẹp 2 dòng bằng CSS),
+// chỉ dòng quá dài (> 240 ký tự) mới cắt, và cắt ở ranh giới chữ + "…" (không còn "mỗi ngườ")
+function updCutWord(s, max) {
+  s = String(s || ""); if (s.length <= max) return s;
+  const c = s.slice(0, max), i = c.lastIndexOf(" ");
+  return (i >= max * 0.5 ? c.slice(0, i) : c).replace(/[\s,.;:·–—-]+$/, "") + "…";
+}
 function updShortNotes(body) {
   return String(body || "").split(/\r?\n/).filter((l) => /^\s*[-*]\s+/.test(l)).slice(0, 2)
-    .map((l) => l.replace(/^\s*[-*]\s+/, "").replace(/\*\*|`/g, "").replace(/\s+/g, " ").trim().slice(0, 110));
+    .map((l) => updCutWord(l.replace(/^\s*[-*]\s+/, "").replace(/\*\*|`/g, "").replace(/\s+/g, " ").trim(), 240));
 }
+// bản lưu của v1.8 trở về trước đã cắt cứng 110 ký tự (giữa chữ) -> lùi về ranh giới chữ + "…"
+const updNoteFix = (l) => { l = String(l || ""); return l.length === 110 && !/[.!?…)]$/.test(l) ? updCutWord(l, 109) : l; };
 // Thẻ cập nhật ở Trang chủ (dưới "Lớp tôi phụ trách") — tự động; Tôi → Tiện ích → Kiểm tra cập nhật là thủ công
 function homeUpdCard() {
   const rec = store.get(UPD_AUTO_KEY, null), cur = (_ver && _ver.name) || APP_VERSION;
   if (!rec || !rec.v || !_upd()) return "";
-  if (cmpVer(rec.v, cur) > 0) {
-    const n = Array.isArray(rec.n) ? rec.n : [];
-    return `<div class="card pad upd-home press" onclick="updateSheet()">
-      <div class="row" style="gap:12px"><span class="cico" style="width:40px;height:40px;border-radius:13px">${ic("sparkle", 20)}</span>
-        <div class="grow"><div style="font-weight:700">Có bản mới v${esc(rec.v)}</div><div class="faint" style="font-size:12.5px">Đang dùng v${esc(cur)} · giữ nguyên ảnh, đăng nhập, cài đặt</div></div></div>
-      ${n.length ? `<ul class="upd-home-n">${n.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : ""}
-      <button class="btn sm" style="margin-top:10px" onclick="event.stopPropagation();updateSheet()">${ic("download", 17)} Cập nhật</button></div>`;
-  }
+  // có bản mới: 1 thanh ngang màu riêng (không lẫn màu lớp) · bấm -> bảng cập nhật có ghi chú (log) + nút Cập nhật ngay
+  if (cmpVer(rec.v, cur) > 0) return `<button class="upd-bar" onclick="updateSheet()" aria-label="Có bản mới v${esc(rec.v)} — xem có gì mới và cập nhật">
+      <span class="upd-bar-ic">${ic("download", 17)}</span>
+      <span class="upd-bar-t">Có bản mới <b>v${esc(rec.v)}</b></span>
+      <span class="upd-bar-go">Cập nhật ${ic("chev", 14)}</span></button>`;
   return `<div class="faint upd-home-ok">${ic("check", 13)} Đang dùng bản mới nhất v${esc(cur)}</div>`;
 }
 function paintHomeUpd() { const b = $("homeUpd"); if (b) b.innerHTML = homeUpdCard(); }
@@ -2933,31 +2959,25 @@ async function searchScreen(q) {
 }
 
 // ============================================================
-//  HỌC SINH — màn nằm ở js/students.js (nạp sau app.js). File đó lỗi / chưa nạp được -> báo nhẹ, app vẫn chạy.
-// ============================================================
-function studentsRoute() {
-  const t = NAV, title = "Học sinh";
-  const fail = (e) => { try { console.error(e); } catch {} if (!stale(t)) screen(appbar({ title, bell: true }) + `<main>${errBox((e && e.message) || "Không mở được mục Học sinh")}</main>`, "students"); };
-  // trang còn đang nạp (students.js chưa chạy tới) -> chờ nạp xong rồi mở
-  if (typeof window.studentsScreen !== "function" && document.readyState === "loading") { skeleton("students"); document.addEventListener("DOMContentLoaded", () => { if (!stale(t)) studentsRoute(); }, { once: true }); return; }
-  if (typeof window.studentsScreen !== "function") return screen(appbar({ title, bell: true }) + `<main>${emptyBox(ic("kids", 44), "Chưa mở được mục Học sinh", "Khởi động lại ứng dụng hoặc cập nhật lên bản mới nhất.")}</main>`, "students");
-  try { return Promise.resolve(window.studentsScreen()).catch(fail); } catch (e) { fail(e); }
-}
-
-// ============================================================
 //  ROUTER
 // ============================================================
+// link / back stack cũ: #/students -> #/classes · #/students/<id lớp> và #/classes/<id> -> màn lớp #/class/<id> (thay mục lịch sử, không đẩy thêm)
+function oldRoute(r, a, b) {
+  if (r !== "students" && !(r === "classes" && a)) return null;
+  return a ? "#/class/" + encodeURIComponent(a) + (r === "classes" && b ? "/" + encodeURIComponent(b) : "") : "#/classes";
+}
 function render() {
   NAV++;   // màn nào còn đang tải của lần điều hướng trước sẽ tự bỏ kết quả
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   const [r, a, b, c] = parts;
+  const moved = oldRoute(r, a, b);
+  if (moved) { try { location.replace(moved); } catch { location.hash = moved; } return; }   // hashchange -> render() lại với địa chỉ mới
   TabLoad.focus(S.user ? r || "home" : null);   // đang đứng ở tab nào: tab khác đang tải nền -> hiện badge %
   if (!r || r === "search" || TABS.some((x) => x[3] === r)) PERSON_NAV = null;   // về màn gốc của tab -> quên tab của hồ sơ đã mở
   if (!S.user) return loginScreen();
   if (!r || r === "home") return homeScreen();
   if (r === "classes") return classesScreen();
   if (r === "class") return classScreen(a, b, c);
-  if (r === "students") return studentsRoute();
   if (r === "teachers") return teachersScreen();
   if (r === "person") return personScreen(a, b);
   if (r === "me") return meScreen();

@@ -215,7 +215,7 @@ const BGL = {
   // ---------- Tìm kiếm ----------
   // Web (bản 25/10/2026) gửi {query, year} và nhận {students, teachers, orphans}; giữ thêm q cho máy chủ bản cũ
   search: (q, year) => GET("v1/search", { query: q, q, year }).then(d),
-  // Bản thô cho tab Học sinh (dò cả danh sách): thêm tham số thử (per_page / page / offset…) + huỷ được (o.signal)
+  // Bản thô cho tab Lớp học (dò tên thiếu nhi cả niên khóa): thêm tham số thử (per_page / page / offset…) + huỷ được (o.signal)
   // -> { data: {students, teachers, orphans}, meta } · meta (nếu máy chủ có phân trang) giữ nguyên để bên gọi đọc
   searchRaw: (q, year, extra, o) =>
     req("GET", "v1/search", { params: Object.assign({ query: q, q, year }, extra || {}), signal: o && o.signal, quiet: true })

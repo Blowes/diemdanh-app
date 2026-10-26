@@ -1,12 +1,14 @@
 // ============================================================
-//  HỌC SINH — TOÀN BỘ thiếu nhi của niên khóa hiện tại (tab "Học sinh", route #/students)
+//  LỚP HỌC (gộp tab Học sinh cũ) — tab "Lớp học", route #/classes · TÊN thiếu nhi cả niên khóa dò ở nền
 //  Nạp SAU app.js, dùng thẳng biến toàn cục của app.js (S, BGL, TabLoad, tabScreen, screen, appbar, avatar…).
 //  Bọc IIFE: tên hàm trong này không đụng app.js (app.js đã có filterStudents, studentCard, renderStudentList…).
-//  GLV thường KHÔNG được xem danh sách lớp khác (403) -> lấy phần xem được như cũ, phần còn lại DÒ qua ô tìm kiếm
-//  (v1/search: khớp chuỗi con của họ tên, mỗi lần tối đa 20 em) cho tới khi đủ số em của các lớp. Lưu máy 12 giờ.
-//  Mặc định: chip ngành + LƯỚI THẺ LỚP ("Khai Tâm A · 10/26" — số nhảy theo thời gian thực khi đang dò) · bấm thẻ -> #/students/<id lớp>
-//  (danh sách em của lớp đó, Back về lưới) · có từ khoá -> danh sách xếp hạng khắp các lớp.
-//  Ra ngoài: window.studentsScreen · window.resetStudents · onclick stuFilter / stuGroup / stuRetry / stuGo / stuReload / stuClass / stuBack / stuOpenCls.
+//  SỐ thiếu nhi mỗi lớp: lấy THẲNG từ danh sách lớp (BGL.classrooms — TabLoad "classes", nhanh, chính xác mỗi lần vào tab).
+//  TÊN: GLV thường KHÔNG được xem danh sách lớp khác (403) -> lấy phần xem được, phần còn lại DÒ qua ô tìm kiếm
+//  (v1/search: khớp chuỗi con của họ tên, mỗi lần tối đa 20 em) — TabLoad "students" (lâu, % hiện ở icon Lớp học). Lưu máy 3 ngày.
+//  Màn: ô tìm + chip ngành + LƯỚI THẺ LỚP ("Khai Tâm A · 26 thiếu nhi", dòng nhỏ "tên 20/26" khi tên chưa đủ) · bấm thẻ -> #/class/<id>
+//  · có từ khoá -> lớp khớp tên (thẻ) + danh sách thiếu nhi xếp hạng khắp các lớp. Lớp không xem được (403): phần Thiếu nhi = tên đã dò.
+//  Ra ngoài: window.studentsScreen (màn #/classes) · window.limitedClassBody · window.resetStudents
+//  · onclick stuFilter / stuGroup / stuRetry / stuGo / stuReload / stuClass / stuP.
 // ============================================================
 (function () {
   "use strict";
@@ -49,8 +51,9 @@
     if (sig && sig.addEventListener) sig.addEventListener("abort", () => { clearTimeout(t); rej(abortErr()); }, { once: true });
   });
   const hash = () => (typeof location !== "undefined" && location.hash) || "";
-  const onStudents = () => /^#\/students(\/[^/]+)?\/?$/.test(hash());             // lưới thẻ #/students · 1 lớp #/students/<id>
-  const routeCid = () => { const m = /^#\/students\/([^/?#]+)/.exec(hash()); if (!m) return null; try { return decodeURIComponent(m[1]); } catch { return m[1]; } };
+  const onCls = () => /^#\/classes\/?$/.test(hash());                               // màn Lớp học (lưới thẻ / tìm)
+  // đang ở phần Thiếu nhi của màn 1 lớp (#/class/<id> hoặc #/class/<id>/thieunhi[/…])
+  const onClassKids = (cid) => { const m = /^#\/class\/([^/?#]+)(\/thieunhi(\/.*)?)?\/?$/.exec(hash()); if (!m) return false; let c = m[1]; try { c = decodeURIComponent(c); } catch {} return c === String(cid); };
   const phoneNorm = (d) => { d = String(d || "").replace(/\D/g, ""); return d.length >= 11 && d.slice(0, 2) === "84" ? "0" + d.slice(2) : d; };
   function nganhOf(fam, name) {
     for (const t of [fam, name]) { const s = noAccent(t || ""); if (!s) continue; for (const [k, re] of NG_RE) if (re.test(s)) return k; }
@@ -460,7 +463,7 @@
     const report = (frac, step) => { at = Math.max(at, Math.min(1, frac || 0)); step = Math.max(0.002, Math.min(1, step || 0.1)); if (typeof prog === "function") prog(at / step, 1 / step); };
     const force = FORCE; FORCE = false;
     try { return await loadYear(run, year, chk, report, () => at, force); }
-    finally { if (RUN === run) RUN = null; if (onStudents()) try { paintLive(); } catch {} }
+    finally { if (RUN === run) RUN = null; try { if (onCls()) paintLive(); if (LIM != null) paintLimited(LIM); } catch {} }
   }
   async function loadYear(run, year, chk, report, atNow, force) {
     const canSearch = typeof BGL.searchRaw === "function" && !!ukey();
@@ -579,6 +582,7 @@
     return add ? sortRows(Array.from(map.values())) : rows;
   }
   TabLoad.def("students", {
+    tab: "classes", here: ["classes", "class"],    // % hiện ở icon Lớp học khi rời tab · đứng ở Lớp học / màn 1 lớp: không badge, không chiếm thanh trên cùng
     data: dataOf,
     // chỉ "im lặng" (không % ở icon) khi danh sách đã đủ và còn mới; còn thiếu / cũ -> lượt dò dài -> hiện %
     silent: () => { const m = S._studentsMeta; return !!(dataOf() && m && m.done && !m.partial && !m.aborted && !(m.missing > 0) && m.at && Date.now() - m.at < STALE_MS); },
@@ -593,10 +597,16 @@
   });
 
   // ---------- lọc: từ khoá (tên / tên thánh / lớp, không dấu; chữ số = SĐT) + ngành ----------
-  // cls: lớp đang mở (#/students/<id>) · cc: số em đã tải theo lớp · ck: chỗ cuộn của lưới thẻ lúc bấm vào lớp · pv: màn vừa vẽ (thẻ / lớp / tìm)
-  const V0 = () => ({ q: "", g: "*", data: null, meta: null, list: [], byG: {}, cnt: new Map(), sc: new Map(), n: 0, shown: 0, lastBox: null, lastCid: null, ft: 0, keep: null, keys: null, keysFor: null, sq: null, live: false, lt: 0,
-    cls: null, cc: new Map(), cvN: 0, ck: null, pv: null, csig: null, cst: null, pushed: false });
+  // cc: số em "Đang Học" đã có TÊN theo lớp · cm: lớp khớp từ khoá · keep: chỗ cuộn lúc rời màn (vào lớp / hồ sơ) · pv: màn vừa vẽ (thẻ / tìm)
+  // err: lượt tải tên vừa lỗi (ghi chú + Thử lại) · np: lượt tải tên đang theo dõi (khỏi gắn then 2 lần)
+  const V0 = () => ({ q: "", g: "*", data: null, meta: null, list: [], cm: [], sc: new Map(), n: 0, shown: 0, lastBox: null, lastCid: null, ft: 0, keep: null, keys: null, keysFor: null, sq: null, lt: 0,
+    cc: new Map(), pv: null, csig: null, cst: null, err: null, np: null });
   const V = Object.assign(V0(), { io: null, sentinel: null, tick: 0 });
+  let LIM = null;                                  // lớp KHÔNG xem được đang mở ở phần Thiếu nhi -> vẽ tên đã dò (nhảy theo bộ dò)
+  const LIST = "mcList";                           // khung lưới thẻ / kết quả tìm (khác "stuList" của màn 1 lớp trong app.js)
+  const ACT = "Đang Học";                          // "N thiếu nhi" của lớp = số em Đang Học (như danh sách lớp cũ)
+  const isAct = (r) => !r.result || r.result === ACT;
+  const actOf = (c) => { const ov = c && c.enrollments_overview; return ov && typeof ov === "object" ? Number(ov[ACT]) || 0 : null; };
   // "Ngọc 0908, an" -> { name: ["ngoc","an"], raw: ["Ngọc","an"], phone: ["0908"] } · chữ số ≥ 3 = SĐT
   function parseKw(q) {
     const out = { name: [], raw: [], phone: [] };
@@ -647,196 +657,150 @@
   const groupsOf = (data) => { const s = new Set(); (data || []).forEach((r) => s.add(r.g)); return GROUPS.filter((x) => x.k !== "" || s.has("")); };
 
   // ---------- vẽ ----------
+  // 1 dòng nhỏ (bấm "i" xem đủ lý do) về phần TÊN — số thiếu nhi luôn đúng (lấy từ danh sách lớp)
   const noteHtml = (m) => {
-    m = m || {}; if (m.live) return "";
+    m = m || {};
     const parts = [], mini = []; let retry = false, warn = false;
-    if (m.source !== "search" && m.skippedClasses) { parts.push(`${m.skippedClasses} lớp bạn không được xem danh sách thiếu nhi nên không có ở đây.`); mini.push(`${m.skippedClasses} lớp không xem được`); }
-    if (m.failedClasses) { parts.push(`Không tải được ${m.failedClasses} lớp.`); mini.push(`lỗi ${m.failedClasses} lớp`); retry = warn = true; }
-    if (m.aborted) { parts.push("Đã dừng tải để tìm nhanh — mở lại tab Học sinh để tải tiếp."); mini.push("đã dừng để tìm nhanh"); retry = true; }
-    else if (m.partial) { parts.push("Mạng chập chờn — chưa tải được hết danh sách."); mini.push("chưa tải hết (mạng chập chờn)"); retry = warn = true; }
-    if (m.done && m.missing > 0) { parts.push(`Còn khoảng ${m.missing} em chưa dò ra (máy chủ chỉ cho tìm theo tên) — gõ tên rồi bấm Bắt đầu tìm.`); mini.push(`~${m.missing} em chưa dò ra — gõ tên để tìm`); }
-    if (m.truncated) { parts.push("Danh sách quá dài — chỉ hiện một phần."); mini.push("chỉ hiện một phần"); }
+    if (V.err) { const msg = (V.err && V.err.message) || "lỗi mạng"; parts.push("Không tải được danh sách tên: " + ((typeof ERR_VN === "object" && ERR_VN && ERR_VN[msg]) || msg)); mini.push("không tải được tên"); retry = warn = true; }
+    if (m.source !== "search" && m.skippedClasses) { parts.push(`${m.skippedClasses} lớp bạn không được xem danh sách thiếu nhi nên chưa có tên.`); mini.push(`${m.skippedClasses} lớp không xem được tên`); }
+    if (m.failedClasses) { parts.push(`Không tải được tên ${m.failedClasses} lớp.`); mini.push(`lỗi ${m.failedClasses} lớp`); retry = warn = true; }
+    if (m.aborted) { parts.push("Đã dừng tải tên để tìm nhanh — mở lại tab Lớp học để tải tiếp."); mini.push("đã dừng tải tên để tìm nhanh"); retry = true; }
+    else if (m.partial && !V.err) { parts.push("Mạng chập chờn — chưa tải được hết tên."); mini.push("chưa tải hết tên (mạng chập chờn)"); retry = warn = true; }
+    if (m.done && m.missing > 0) { parts.push(`Còn khoảng ${m.missing} em chưa dò ra tên (máy chủ chỉ cho tìm theo tên) — gõ tên rồi bấm Bắt đầu tìm.`); mini.push(`~${m.missing} em chưa dò ra tên — gõ tên để tìm`); }
+    if (m.truncated) { parts.push("Danh sách quá dài — chỉ có một phần tên."); mini.push("chỉ có một phần tên"); }
     if (!parts.length) return "";
-    // 1 dòng nhỏ (bấm "i" xem đủ lý do) — không chiếm cả khung như thẻ note
-    return `<div class="stu-mini${warn ? " warn" : ""}" title="${esc(parts.join(" "))}">${ic(warn ? "warn" : "key", 14)}<span class="grow">${esc(mini.join(" · ") || "Danh sách chưa đủ")}</span>${retry ? `<a class="link" onclick="stuRetry()">${m.aborted ? "Tải tiếp" : "Thử lại"}</a>` : ""}</div>`;
+    const link = retry && !TabLoad.running("students") ? `<a class="link" onclick="stuRetry()">${m.aborted && !V.err ? "Tải tiếp" : "Thử lại"}</a>` : "";
+    return `<div class="stu-mini${warn ? " warn" : ""}" title="${esc(parts.join(" "))}">${ic(warn ? "warn" : "key", 14)}<span class="grow">${esc(mini.join(" · "))}</span>${link}</div>`;
   };
-  // 3 màn trong tab: "k" lưới thẻ lớp (mặc định) · "s" kết quả tìm (có từ khoá) · "c:<id>" danh sách 1 lớp
+  // 2 màn trong tab: "k" lưới thẻ lớp (mặc định) · "s" có từ khoá (lớp khớp + thiếu nhi xếp hạng)
   const kwN = (q) => { const k = parseKw(q); return k.name.length + k.phone.length; };
-  const viewKey = () => (V.cls != null ? "c:" + V.cls : kwN(V.q) ? "s" : "k");
-  const cview = () => V.cls == null && !V.n;
-  const gid = (r) => (V.n ? (V.sc.get(r) && V.sc.get(r).all ? "A" : "B") : "C");
+  const viewKey = () => (kwN(V.q) ? "s" : "k");
+  const gid = (r) => (V.sc.get(r) && V.sc.get(r).all ? "A" : "B");
   const header = (r) => {
-    if (!V.n) return "";                                   // trong 1 lớp, không từ khoá: 1 khối (đầu lớp nằm ở #stuHead)
     const all = gid(r) === "A", k = V.list.filter((x) => (V.sc.get(x) || {}).all === (all ? 1 : 0)).length;
     return `<div class="sec-eyebrow stu-h"><span class="eyebrow">${all ? "Khớp đủ từ khoá" : "Khớp một phần"} · ${k}</span></div>`;
   };
   const rowHtml = (r) => {
-    const s = V.n ? V.sc.get(r) : null, G = grp(r.g);
+    const s = V.sc.get(r), G = grp(r.g);
     const extra = s ? `<span class="stu-ng ${G.cls}">${esc(G.label)}</span>${s.lab.map((l) => `<span class="stu-lab">${esc(l)}</span>`).join("")}${s.phm ? phoneChip(s.phm, r.name) : ""}` : "";
     return `<div class="stu-row" data-pid="${esc(String(r.pid))}" role="button" tabindex="0">${avatar({ id: r.pid, name: r.name }, { size: 40, fs: 14 })}
     <div class="grow">${r.cn ? `<div class="faint stu-cn">${esc(r.cn)}</div>` : ""}<div class="nm stu-nm">${esc(r.name || "—")}</div>
-      <div class="muted stu-sub">${V.cls == null ? esc(r.cname || "") : ""}${extra}${r.birth ? `<span class="stu-dob">${ic("cake", 12)} ${esc(fmtDate(r.birth))}</span>` : ""}</div></div>
+      <div class="muted stu-sub">${esc(r.cname || "")}${extra}${r.birth ? `<span class="stu-dob">${ic("cake", 12)} ${esc(fmtDate(r.birth))}</span>` : ""}</div></div>
     ${r.result ? `<span class="chip ${RESULT_CLS[r.result] || "st-quit"} stu-res">${esc(r.result)}</span>` : ""}</div>`;
   };
   const canSearchUI = () => typeof BGL.searchRaw === "function";
 
-  // ---------- LƯỚI THẺ LỚP: "Khai Tâm A · 10/26" = đã tải 10 / lớp có 26 em — đang dò thì số nhảy dần ----------
-  const countBy = (rows) => { const m = new Map(); rows.forEach((r) => { if (r.cid == null) return; const c = String(r.cid); m.set(c, (m.get(c) || 0) + 1); }); return m; };
-  const dropNow = () => new Set((RUN && RUN.drop ? RUN.drop() : V.meta && V.meta.drop) || []);
-  // tổng 1 lớp = tổng enrollments_overview (như số cần tìm của bộ dò: trừ kết quả ô tìm kiếm không trả, vd. Nghỉ Luôn) · null: không rõ
-  const ovSum = (c, drop) => { const ov = c && c.enrollments_overview; if (!ov || typeof ov !== "object") return null; let n = 0; for (const k in ov) if (!drop.has(k)) n += Number(ov[k]) || 0; return n; };
+  // ---------- LƯỚI THẺ LỚP: "Khai Tâm A · 26 thiếu nhi" (sĩ số CHÍNH XÁC) · dòng nhỏ "tên 20/26" khi tên lớp đó chưa đủ ----------
+  const countBy = (rows) => { const m = new Map(); rows.forEach((r) => { if (r.cid == null || !isAct(r)) return; const c = String(r.cid); m.set(c, (m.get(c) || 0) + 1); }); return m; };
   const ini = (n) => { const w = String(n || "").trim().split(/\s+/).filter(Boolean); return w.length ? (((w.length > 1 && w[w.length - 2][0]) || "") + w[w.length - 1][0]).toUpperCase() : "?"; };   // như initials() của app.js
-  const clsIco = (x) => { const k = (typeof classThemeKey === "function" && classThemeKey({ name: x.name })) || x.g; return `<div class="cico${k ? " t-" + k : ""}">${esc(ini(x.name))}</div>`; };   // Hỗ Trợ: đen dù thuộc nhóm Khác
-  // mọi lớp của niên khóa (cả lớp chưa tải được em nào) + lớp chỉ thấy qua dữ liệu em · lớp mình trước, rồi Chiên -> Ấu -> Thiếu -> Nghĩa -> Khác, tên lớp
+  const themeOf = (x) => (typeof classThemeKey === "function" && classThemeKey({ name: x.name })) || x.g;   // Hỗ Trợ: đen dù thuộc nhóm Khác
+  const clsIco = (x) => { const k = themeOf(x); return `<div class="cico${k ? " t-" + k : ""}">${esc(ini(x.name))}</div>`; };
+  const haveCounts = () => sameYear(S._classes, curYear());
+  // mọi lớp của niên khóa (danh sách lớp; chưa có thì lớp thấy qua dữ liệu tên) · lớp mình trước, rồi Chiên -> … -> Vào Đời -> Khác, tên lớp
   function cardsOf() {
-    const cl = classList(), mine = myCids(), drop = dropNow(), seen = new Set(), out = [];
-    (cl || []).forEach((c) => { if (!c || c.id == null) return; const id = String(c.id); if (seen.has(id)) return; seen.add(id); out.push({ id, name: String(c.name || ""), g: nganhOf(c.family, c.name), t: ovSum(c, drop) }); });
-    (V.data || []).forEach((r) => { if (r.cid == null) return; const id = String(r.cid); if (seen.has(id)) return; seen.add(id); out.push({ id, name: r.cname || "", g: r.g || "", t: null }); });
+    const cl = classList(), mine = myCids(), seen = new Set(), out = [];
+    (cl || []).forEach((c) => { if (!c || c.id == null) return; const id = String(c.id); if (seen.has(id)) return; seen.add(id); out.push({ id, name: String(c.name || ""), g: nganhOf(c.family, c.name), t: actOf(c) }); });
+    if (!cl) (V.data || []).forEach((r) => { if (r.cid == null) return; const id = String(r.cid); if (seen.has(id)) return; seen.add(id); out.push({ id, name: r.cname || "", g: r.g || "", t: null }); });
     out.forEach((x) => { x.n = V.cc.get(x.id) || 0; x.mine = mine.has(x.id) ? 1 : 0; });
     return out.sort((a, b) => (b.mine - a.mine) || ((GORD[a.g] ?? 5) - (GORD[b.g] ?? 5)) || cmp(a.name, b.name) || a.id.localeCompare(b.id));
   }
-  // ok: đủ em (đã tải ≥ tổng) hoặc lượt dò đã xong (không tìm thêm được nữa -> chỉ ghi số em, khỏi "25/26" gây hiểu lầm)
-  function cardSt(x) {
-    const done = !!(V.meta && V.meta.done) && !V.live && !TabLoad.running("students");
-    const ok = (x.t != null && x.n >= x.t) || done, pct = ok ? 100 : x.t ? Math.min(100, Math.round((x.n / x.t) * 100)) : 0;
-    const kn = ok || x.t == null ? `${x.n} em${ok ? " " + ic("check", 13) : ""}` : `<b>${x.n}</b>/${x.t}`;
-    return { ok, pct, kn, key: kn + "|" + pct };
+  // dòng tên của thẻ: ẩn khi đủ (đã có ≥ sĩ số) / không rõ sĩ số / chưa có chút tên nào mà cũng không dò (khỏi "tên 0/26" mãi)
+  function nameSt(x) {
+    const has = !!(V.data && V.data.length) || TabLoad.running("students");
+    const ok = !has || x.t == null || x.n >= x.t, pct = ok ? 100 : Math.min(100, Math.round((x.n / Math.max(1, x.t)) * 100));
+    return { ok, pct, html: ok ? "" : `<span>tên ${x.n}/${x.t}</span><i class="stu-nb"><b style="width:${pct}%"></b></i>`, key: ok ? "ok" : x.n + "/" + x.t };
   }
-  const cardHtml = (x, s) => `<div class="stu-card${x.g ? " t-" + x.g : ""}${x.mine ? " mine" : ""}" data-cid="${esc(x.id)}" role="button" tabindex="0">${clsIco(x)}
-    <div class="grow"><div class="stu-cname">${esc(x.name || "Chưa rõ lớp")}</div><div class="stu-kn num${s.ok ? " ok" : ""}" id="stuK-${esc(x.id)}">${s.kn}</div></div>
-    <div class="stu-bar"><i id="stuB-${esc(x.id)}"${s.ok ? ' class="ok"' : ""} style="width:${s.pct}%"></i></div></div>`;
-  // full: vẽ lại cả lưới · không: chỉ sửa chữ + thanh của thẻ ĐỔI số (bộ lớp đổi -> tự vẽ lại cả lưới)
+  const cardHtml = (x, s) => { const k = themeOf(x); return `<div class="stu-card${k ? " t-" + k : ""}${x.mine ? " mine" : ""}" data-cid="${esc(x.id)}" role="button" tabindex="0">${clsIco(x)}
+    <div class="grow"><div class="stu-cname">${esc(x.name || "Chưa rõ lớp")}</div><div class="stu-kn num"><b>${x.t == null ? "—" : x.t}</b> thiếu nhi</div>
+      <div class="stu-nl${s.ok ? " ok" : ""}" id="stuN-${esc(x.id)}">${s.html}</div></div></div>`; };
+  // "Tất cả": tiêu đề nhỏ theo ngành (lớp mình đứng đầu)
+  function gridHtml(cs, st, sec) {
+    let html = "", cur;
+    cs.forEach((x, i) => {
+      const k = sec ? (x.mine ? "*" : x.g || "") : null;
+      if (k !== null && k !== cur) { cur = k; const n = cs.filter((y) => (y.mine ? "*" : y.g || "") === k).length; html += `<div class="sec-eyebrow stu-h stu-gh"><span class="eyebrow">${k === "*" ? "Lớp của bạn" : esc(grp(k).label)} · ${n} lớp</span></div>`; }
+      html += cardHtml(x, st[i]);
+    });
+    return `<div class="stu-cards">${html}</div>`;
+  }
+  // full: vẽ lại cả lưới · không: chỉ sửa dòng tên của thẻ ĐỔI (bộ lớp / sĩ số đổi -> tự vẽ lại cả lưới)
   function paintCards(full) {
-    const box = $("stuList"); if (!box) return;
-    const cs = cardsOf().filter((x) => V.g === "*" || (x.g || "") === V.g), st = cs.map(cardSt);
-    const sig = V.g + "|" + cs.map((x) => x.id + (x.mine ? "*" : "")).join(",");
-    if (full || V.csig !== sig || !cs.length || !$("stuK-" + cs[0].id)) {
+    const box = $(LIST); if (!box) return;
+    const cs = cardsOf().filter((x) => V.g === "*" || (x.g || "") === V.g), st = cs.map(nameSt);
+    const sig = V.g + "|" + cs.map((x) => x.id + (x.mine ? "*" : "") + ":" + x.t).join(",");
+    if (full || V.csig !== sig || !cs.length || !$("stuN-" + cs[0].id)) {
       V.csig = sig; V.cst = new Map(cs.map((x, i) => [x.id, st[i].key]));
-      if (!cs.length) { box.innerHTML = emptyBox(ic(IC.kids ? "kids" : "users", 44), V.data && V.data.length ? "Không có lớp trong nhóm này" : "Chưa có học sinh", TabLoad.running("students") ? "Danh sách đang tải…" : ""); return; }
-      let html = "", sec;
-      cs.forEach((x, i) => {
-        const k = V.g === "*" ? (x.mine ? "*" : x.g || "") : null;   // "Tất cả": tiêu đề nhỏ theo ngành (lớp mình đứng đầu)
-        if (k !== null && k !== sec) { sec = k; const n = cs.filter((y) => (y.mine ? "*" : y.g || "") === k).length; html += `<div class="sec-eyebrow stu-h stu-gh"><span class="eyebrow">${k === "*" ? "Lớp của bạn" : esc(grp(k).label)} · ${n} lớp</span></div>`; }
-        html += cardHtml(x, st[i]);
-      });
-      box.innerHTML = `<div class="stu-cards">${html}</div>`;
+      box.innerHTML = cs.length ? gridHtml(cs, st, V.g === "*") : emptyBox(ic("book", 44), classList() ? "Không có lớp trong nhóm này" : "Chưa có lớp", classList() ? "" : `Niên khóa ${longYearOf(curYear())} chưa có lớp nào.`);
       return;
     }
     cs.forEach((x, i) => {
       const s = st[i]; if (V.cst.get(x.id) === s.key) return; V.cst.set(x.id, s.key);
-      const k = $("stuK-" + x.id), b = $("stuB-" + x.id);
-      if (k) { k.innerHTML = s.kn; k.className = "stu-kn num" + (s.ok ? " ok" : ""); }
-      if (b) { b.style.width = s.pct + "%"; b.className = s.ok ? "ok" : ""; }
+      const el = $("stuN-" + x.id); if (el) { el.innerHTML = s.html; el.className = "stu-nl" + (s.ok ? " ok" : ""); }
     });
   }
-  // đầu màn 1 lớp: ‹ + tên lớp + "25/26" (đang dò thì nhảy số) + Mở lớp
-  function paintHead() {
-    const el = $("stuHead"); if (!el) return;
-    if (V.cls == null) { if (el.innerHTML) el.innerHTML = ""; return; }
-    const x = cardsOf().find((c) => c.id === V.cls) || { id: V.cls, name: "Lớp", g: "", t: null, n: 0 }, s = cardSt(x), k = $("stuCK"), b = $("stuCB");
-    if (k && el.dataset.cid === V.cls) { if (k.innerHTML !== s.kn) { k.innerHTML = s.kn; k.className = "stu-kn num" + (s.ok ? " ok" : ""); } if (b) { b.style.width = s.pct + "%"; b.className = s.ok ? "ok" : ""; } return; }
-    el.dataset.cid = V.cls;
-    el.innerHTML = `<div class="stu-ch${x.g ? " t-" + x.g : ""}"><button class="stu-back" onclick="stuBack()" aria-label="Về danh sách lớp">${ic("back", 20)}</button>${clsIco(x)}
-      <div class="grow"><div class="stu-ctn">${esc(x.name || "Lớp")}</div><div class="stu-kn num${s.ok ? " ok" : ""}" id="stuCK">${s.kn}</div></div>
-      <a class="link stu-open" data-cid="${esc(V.cls)}" onclick="stuOpenCls(this.dataset.cid)">Mở lớp</a>
-      <div class="stu-bar"><i id="stuCB"${s.ok ? ' class="ok"' : ""} style="width:${s.pct}%"></i></div></div>`;
+  // chip ngành: số = SĨ SỐ (Đang Học) của các lớp trong ngành — không phụ thuộc phần tên đã dò
+  function chipData() {
+    const cs = cardsOf(), by = { "*": 0 }, has = new Set();
+    cs.forEach((x) => { const k = x.g || "", v = x.t || 0; by["*"] += v; by[k] = (by[k] || 0) + v; has.add(k); });
+    return { cs, by, gs: GROUPS.filter((x) => x.k !== "" || has.has("")) };
   }
-  // đang dò: gộp em vừa tìm thấy (RUN.found) vào danh sách đang hiện -> số em từng lớp chỉ tăng, không tụt khi vẽ lại
-  function withLive(rows) {
-    const R = RUN; if (!R || !R.found || !R.found.size || R.year !== curYear()) return rows;
-    const have = new Set(rows.map(keyOf)), add = [];
-    R.found.forEach((r, k) => { if (!have.has(k)) add.push(r); });
-    return add.length ? sortRows(rows.concat(add)) : rows;
-  }
-
-  function draw(d) {
-    if (V.live && $("stuList") && d && d.rows && d.rows.length && !(d.meta && d.meta.live)) { V.live = false; return update(d); }   // đang hiện phần dò dở -> nối tiếp, không vẽ lại cả màn
-    stopIO();
-    V.live = !!(d && d.meta && d.meta.live);
-    V.data = withLive(withExtra((d && d.rows) || [])); V.meta = (d && d.meta) || {};
-    const pc = V.cls; V.cls = routeCid(); if (pc !== V.cls) V.q = "";   // vào / ra 1 lớp: bỏ từ khoá (tìm trong lớp chỉ dùng trong lớp đó)
-    if (V.g !== "*" && !groupsOf(V.data).some((x) => x.k === V.g)) V.g = "*";
-    const m = V.meta, bar = appbar({ title: "Học sinh", bell: true, action: `<button class="act" id="stuReloadBtn" onclick="stuReload()" aria-label="Tải lại danh sách">${ic("refresh", 20)}</button><button class="act" onclick="go('#/search')" aria-label="Tìm kiếm">${ic("search", 20)}</button>` });
-    if (!V.data.length && !canSearchUI()) {                // máy chủ không có tìm kiếm & chưa có em nào: chỉ ghi chú + hộp trống (như trước)
-      const none = m.classCount > 0 && m.skippedClasses >= m.classCount;
-      screen(bar + `<main><div class="wrap">${noteHtml(none ? Object.assign({}, m, { skippedClasses: 0 }) : m)}${none
-        ? emptyBox(ic("key", 44), "Chưa xem được thiếu nhi lớp nào", "Tài khoản của bạn chỉ xem được thiếu nhi của lớp mình được phân công.")
-        : emptyBox(ic(IC.kids ? "kids" : "users", 44), "Chưa có học sinh", `Niên khóa ${m.longYear || longYearOf(curYear())} chưa có thiếu nhi nào.`)}</div></main>`, "students");
-      return;
-    }
-    screen(bar + `<main><div class="wrap">
-        <div class="stu-sbar"><label class="searchbar">${ic("search", 18)}<input id="stuq" placeholder="${V.cls != null ? "Tìm trong lớp này…" : "Tên, SĐT phụ huynh…"}" autocomplete="off" enterkeyhint="search" value="${esc(V.q)}" oninput="stuFilter(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();stuGo()}"/></label>
-          <button class="btn sm stu-go" onclick="stuGo()">Bắt đầu tìm</button></div>
-        <div class="rev-status filterbar" id="stuChips"></div>
-        <div class="muted stu-count"><span id="stuCount"></span><a class="link" id="stuReload" onclick="stuReload()">Tải lại danh sách</a></div>
-        <div id="stuNote">${noteHtml(m)}</div>
-        <div id="stuHead"></div>
-        <div class="stu-list" id="stuList"></div>
-        <div class="stu-more" id="stuMore" aria-hidden="true"></div>
-      </div></main>`, "students");
-    bindList();
-    const vk = viewKey(), moved = V.pv !== vk; V.pv = vk;
-    const k = V.keep; V.keep = null;                       // quay lại từ hồ sơ: vẽ đủ số em lúc trước + cuộn về chỗ cũ
-    const back = k && k.v === vk && k.q === V.q && k.g === V.g && Date.now() - k.at < 30 * 60e3;
-    refresh(back ? Math.max(FIRST, k.n) : FIRST);
-    let y = back ? k.y : -1;
-    if (!back && moved) { if (vk === "k") { const c = V.ck; V.ck = null; y = c && c.g === V.g ? c.y : 0; } else y = 0; }   // thẻ -> lớp: lên đầu · lớp -> thẻ: về đúng chỗ cũ của lưới
-    if (y >= 0) { try { requestAnimationFrame(() => window.scrollTo(0, y)); } catch {} }
-  }
-  // làm mới ở nền thấy dữ liệu đổi: giữ ô lọc + số em đang hiện (không giật cuộn)
-  function update(d) {
-    const had = V.data && V.data.length;
-    if (!had || !$("stuList") || !(d && d.rows && d.rows.length)) return draw(d);
-    V.live = !!(d.meta && d.meta.live);
-    V.data = withLive(withExtra(d.rows)); V.meta = d.meta || {};
-    if (V.g !== "*" && !groupsOf(V.data).some((x) => x.k === V.g)) V.g = "*";
-    const n = $("stuNote"); if (n) n.innerHTML = noteHtml(V.meta);
-    refresh(Math.max(FIRST, V.shown));
-  }
-  // vẽ lại màn hiện tại theo dữ liệu + lọc: lưới thẻ / kết quả tìm (khắp các lớp, theo chip ngành) / 1 lớp (lọc trong lớp)
-  function refresh(n) {
-    if (!V.data) return;
-    V.cc = countBy(V.data);
-    const cv = V.cls != null, f = filterRows(cv ? V.data.filter((r) => String(r.cid) === V.cls) : V.data, V.q, cv ? "*" : V.g);
-    V.list = f.list; V.sc = f.sc; V.n = f.n;
-    if (cv) V.cvN = V.cc.get(V.cls) || 0; else { V.byG = f.byG; V.cnt = f.cnt; }
-    paintChips(); paintCount(); paintHead();
-    if (cview()) { stopIO(); V.shown = 0; const s = $("stuMore"); if (s) s.style.display = "none"; return paintCards(true); }
-    renderList(n || FIRST);
-  }
-  function paintChips() {
+  function paintChips(cd) {
     const el = $("stuChips"); if (!el) return;
-    const gs = groupsOf(V.data), sl = el.scrollLeft || 0;
-    el.style.display = V.cls == null && V.data && V.data.length ? "" : "none";   // .rev-status là flex nên không dùng hidden · trong 1 lớp: ẩn
-    const chip = (k, label, cls) => `<button class="pick ${V.g === k ? "on " + cls : ""}" data-g="${k}" onclick="stuGroup('${k}')">${esc(label)} <b class="num">${V.byG[k] || 0}</b></button>`;
-    el.innerHTML = chip("*", "Tất cả", "st-quit") + gs.map((x) => chip(x.k, x.label, x.cls)).join("");
+    cd = cd || chipData(); const sl = el.scrollLeft || 0;
+    el.style.display = cd.cs.length ? "" : "none";            // .rev-status là flex nên không dùng hidden
+    const chip = (k, label, cls) => `<button class="pick ${V.g === k ? "on " + cls : ""}" data-g="${k}" onclick="stuGroup('${k}')">${esc(label)} <b class="num">${cd.by[k] || 0}</b></button>`;
+    el.innerHTML = chip("*", "Tất cả", "st-quit") + cd.gs.map((x) => chip(x.k, x.label, x.cls)).join("");
     el.scrollLeft = sl;
   }
+  // "913 thiếu nhi · 34 lớp · 2026 - 2027" (+ nhỏ "đang tải tên x/y": x = em Đang Học đã có tên, tính theo từng lớp)
   function paintCount() {
-    const el = $("stuCount"); if (!el || !V.data) return;
-    const all = V.data.length, n = V.list.length, filtered = V.n > 0 || V.g !== "*", loading = TabLoad.running("students");
-    let s = V.cls != null ? (V.n ? `${n} / ${V.cc.get(V.cls) || 0} em trong lớp` : `${all} học sinh · ${(V.meta && V.meta.longYear) || longYearOf(curYear())}`)
-      : `${filtered ? `${n} / ${all}` : all} học sinh · ${(V.meta && V.meta.longYear) || longYearOf(curYear())}`;
-    if (loading) { const R = RUN, t = R && R.target ? R.target() : 0; s += R && R.found && t ? ` · đang tải ${Math.min(Math.max(R.found.size, all), t)}/${t}` : " · đang tải…"; }   // tải lại: không tụt số đã có
-    if (V.sq) s += " · đang tìm trên máy chủ…";
-    el.textContent = s;
+    const el = $("stuCount"); if (!el) return;
+    const cs = cardsOf(), T = cs.reduce((n, x) => n + (x.t || 0), 0), loading = TabLoad.running("students");
+    let sm = "";
+    if (loading) sm += ` · đang tải tên ${cs.reduce((n, x) => n + Math.min(x.n, x.t || 0), 0)}/${T}`;
+    if (V.sq) sm += " · đang tìm trên máy chủ…";
+    el.innerHTML = `${T} thiếu nhi · ${cs.length} lớp · ${esc(longYearOf(curYear()))}` + (sm ? `<small class="stu-ld">${esc(sm)}</small>` : "");
     const a = $("stuReload"); if (a) a.style.display = loading ? "none" : "";
-    const rb = $("stuReloadBtn"); if (rb) rb.classList.toggle("stu-spin", !!loading);   // nút tải lại trên thanh: xoay khi đang tải
+    const rb = $("stuReloadBtn"); if (rb) rb.classList.toggle("stu-spin", !!loading);   // nút tải lại trên thanh: xoay khi đang tải tên
   }
-  const paintLive = () => { paintCount(); if (cview()) paintCards(false); else if (V.cls != null) paintHead(); };
-  // vẽ lại từ đầu (đổi lọc / dữ liệu): xoá danh sách, vẽ n em đầu, lắng nghe cuộn để vẽ tiếp
+  const paintLive = () => { paintCount(); if (!V.n) paintCards(false); };
+  const paintNote = () => { const n = $("stuNote"); if (n) n.innerHTML = noteHtml(V.meta); };
+  // lớp khớp từ khoá: mọi từ là ĐẦU một chữ trong tên lớp ("khai tam a", "ruoc le 2") · có SĐT -> đang tìm em, không xét lớp
+  function classMatches(kw, g) {
+    if (!kw.name.length || kw.phone.length) return [];
+    return cardsOf().filter((x) => {
+      if (g && g !== "*" && (x.g || "") !== g) return false;
+      const ws = noAccent(x.name).split(/\s+/); return kw.name.every((t) => ws.some((w) => w.startsWith(t)));
+    });
+  }
+  // vẽ lại theo dữ liệu + lọc: không từ khoá -> lưới thẻ · có -> lớp khớp (thẻ) + thiếu nhi xếp hạng khắp các lớp (theo chip ngành)
+  function refresh(n) {
+    if (!V.data || !$(LIST)) return;
+    V.cc = countBy(V.data);
+    const cd = chipData(); if (V.g !== "*" && !cd.gs.some((x) => x.k === V.g)) V.g = "*";
+    const kw = parseKw(V.q); V.n = kw.name.length + kw.phone.length;
+    paintChips(cd); paintCount();
+    if (!V.n) { V.list = []; V.cm = []; V.sc = new Map(); stopIO(); V.shown = 0; const s = $("stuMore"); if (s) s.style.display = "none"; return paintCards(true); }
+    V.cm = classMatches(kw, V.g); V.csig = null;
+    const f = filterRows(V.data, V.q, V.g); V.sc = f.sc;
+    V.list = V.cm.length ? f.list.filter((r) => { const s = f.sc.get(r); return !(s && s.lab.length === 1 && s.lab[0] === "Lớp"); }) : f.list;   // đã có thẻ lớp: bỏ em chỉ khớp vì tên lớp
+    renderList(n || FIRST);
+  }
+  // vẽ lại từ đầu (đổi lọc / dữ liệu): lớp khớp + n em đầu, lắng nghe cuộn để vẽ tiếp
   function renderList(n) {
-    const box = $("stuList"); if (!box) return;
+    const box = $(LIST); if (!box) return;
     clearTimeout(V.tick); V.tick = 0;
     V.shown = 0; V.lastBox = null; V.lastCid = null;
     const q = V.q.trim(), loading = TabLoad.running("students");
-    box.innerHTML = V.list.length ? "" : emptyBox(ic("search", 44), q ? `Không có học sinh khớp “${q}”` : V.cls != null ? (loading ? "Chưa tải được em nào của lớp này" : "Lớp chưa có học sinh") : V.data && V.data.length ? "Không có học sinh trong nhóm này" : "Chưa có học sinh",
-      q && V.sq ? "Đang tìm thêm trên máy chủ…" : q && loading && V.cls == null ? "Danh sách còn đang tải — bấm Bắt đầu tìm để tìm ngay trên máy chủ." : V.cls != null && loading ? "Danh sách đang tải — em nào tải xong sẽ hiện ngay." : "");
+    let html = V.cm.length ? `<div class="sec-eyebrow stu-h"><span class="eyebrow">Lớp khớp · ${V.cm.length}</span></div><div class="stu-cards stu-cm">${V.cm.map((x) => cardHtml(x, nameSt(x))).join("")}</div>` : "";
+    if (!V.list.length) html += V.cm.length ? (V.sq ? `<div class="muted stu-wait">Đang tìm thiếu nhi trên máy chủ…</div>` : "")
+      : emptyBox(ic("search", 44), `Không có lớp hay thiếu nhi khớp “${q}”`, V.sq ? "Đang tìm thêm trên máy chủ…" : loading ? "Danh sách tên còn đang tải — bấm Bắt đầu tìm để tìm ngay trên máy chủ." : "");
+    box.innerHTML = html;
     appendRows(n || FIRST); watch();
   }
   // nối thêm tối đa n em TIẾP THEO (luôn tính từ V.shown -> không trùng, không sót): em cùng nhóm với khối cuối thì chèn vào khối đó
   function appendRows(n) {
-    const box = $("stuList"); if (!box) return 0;
+    const box = $(LIST); if (!box) return 0;
     const from = V.shown, end = Math.min(V.list.length, from + n); if (end <= from) return 0;
     let html = "", tail = "", rows = "", open = false, cur = V.lastCid;
     for (let i = from; i < end; i++) {
@@ -857,10 +821,10 @@
   // mốc cuối danh sách: còn em chưa vẽ & mốc cách mép dưới < 900px -> vẽ thêm 1 đợt
   function watch() {
     const s = $("stuMore"); if (!s) return stopIO();
-    const left = !cview() && V.shown < V.list.length; s.style.display = left ? "" : "none";
+    const left = !!V.n && V.shown < V.list.length; s.style.display = left ? "" : "none";
     if (!left) return stopIO();
     if (typeof IntersectionObserver !== "function") {     // WebView quá cũ: vẽ dần theo hẹn giờ
-      clearTimeout(V.tick); V.tick = setTimeout(() => { V.tick = 0; if (s.isConnected && $("stuList")) { appendRows(CHUNK); watch(); } }, 60);
+      clearTimeout(V.tick); V.tick = setTimeout(() => { V.tick = 0; if (s.isConnected && $(LIST)) { appendRows(CHUNK); watch(); } }, 60);
       return;
     }
     if (!V.io || V.sentinel !== s) { stopIO(); V.sentinel = s; V.io = new IntersectionObserver(onIO, { rootMargin: "0px 0px 900px 0px" }); }
@@ -868,58 +832,47 @@
   }
   function onIO(entries) {
     const s = V.sentinel;
-    if (!s || !s.isConnected || !$("stuList") || cview()) return stopIO();   // đã rời màn / đang ở lưới thẻ -> thôi theo dõi
+    if (!s || !s.isConnected || !$(LIST) || !V.n) return stopIO();   // đã rời màn / đang ở lưới thẻ -> thôi theo dõi
     if (!entries.some((e) => e.isIntersecting)) return;
     appendRows(CHUNK); watch();
   }
   function stopIO() { if (V.io) { try { V.io.disconnect(); } catch {} } V.io = null; V.sentinel = null; clearTimeout(V.tick); V.tick = 0; }
-  // bấm thẻ lớp -> danh sách lớp · bấm 1 em -> hồ sơ (tab Học sinh vẫn sáng; hồ sơ rút gọn nhờ rememberPerson) · "Mở lớp" -> màn lớp
+  // bấm thẻ lớp -> màn lớp #/class/<id> · bấm 1 em -> hồ sơ (tab Lớp học vẫn sáng; hồ sơ rút gọn nhờ rememberPerson)
   function bindList() {
-    const box = $("stuList"); if (!box) return;
+    const box = $(LIST); if (!box) return;
     const pick = (ev) => {
       const t = ev.target; if (!t || !t.closest) return;
       if (t.closest(".phone")) return;                     // bấm SĐT -> bảng gọi / Zalo (phoneChip tự xử lý)
       const cd = t.closest(".stu-card"); if (cd) { stuClass(cd.dataset.cid); return; }
-      const o = t.closest(".stu-open"); if (o) { stuOpenCls(o.dataset.cid); return; }
       const row = t.closest(".stu-row"); if (!row) return;
-      remember();
-      if (typeof window.openPerson === "function") window.openPerson(row.dataset.pid, "students"); else go("#/person/" + encodeURIComponent(row.dataset.pid));
+      remember(); stuP(row.dataset.pid);
     };
     box.addEventListener("click", pick);
     box.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); pick(ev); } });
   }
   const remember = () => { V.keep = { y: window.scrollY || 0, n: V.shown, q: V.q, g: V.g, v: viewKey(), at: Date.now() }; };
 
-  // ---------- đang dò: số trên thẻ lớp / đầu lớp nhảy theo thời gian thực (~LIVE_MS) · chưa có gì -> vẽ phần đã tìm thấy ----------
+  // ---------- đang dò: dòng "tên x/y" của thẻ + "đang tải tên x/y" nhảy theo thời gian thực (~LIVE_MS) ----------
+  // đang dò: gộp em vừa tìm thấy (RUN.found) vào danh sách đang hiện -> số tên từng lớp chỉ tăng, không tụt khi vẽ lại
+  function withLive(rows) {
+    const R = RUN; if (!R || !R.found || !R.found.size || R.year !== curYear()) return rows;
+    const have = new Set(rows.map(keyOf)), add = [];
+    R.found.forEach((r, k) => { if (!have.has(k)) add.push(r); });
+    return add.length ? sortRows(rows.concat(add)) : rows;
+  }
   function liveApply() {
     V.lt = 0;
-    const R = RUN; if (!R || !R.found || !onStudents()) return;
-    if (!$("stuList")) {                                   // màn đang khung xương (lần đầu, chưa có danh sách) -> vẽ phần đã dò
-      if (R.found.size) draw({ rows: sortRows(Array.from(R.found.values())), meta: { year: R.year, longYear: longYearOf(R.year), source: "search", live: true } });
-      return;
-    }
-    if (!V.data) return;
+    const R = RUN; if (!R || !R.found) return;
+    if (LIM != null) paintLimited(LIM);                    // đang mở 1 lớp không xem được: tên mới của lớp hiện ngay
+    if (!onCls() || !$(LIST) || !V.data) return;           // màn đang khung xương (chờ số lớp) -> vẽ khi có số
     const nd = withLive(V.data);
-    if (nd === V.data) return paintLive();                 // không có em mới: chỉ cập nhật số / trạng thái
-    V.data = nd; V.cc = countBy(nd);
-    if (V.cls != null) {                                   // đang mở 1 lớp: em mới của lớp -> nối vào cuối (không xếp lại dưới tay)
-      const c = V.cc.get(V.cls) || 0;
-      if (c !== V.cvN) {
-        if (V.n || !V.list.length) refresh(Math.max(FIRST, V.shown));
-        else {
-          const have = new Set(V.list.map(keyOf)), add = nd.filter((r) => String(r.cid) === V.cls && !have.has(keyOf(r)));
-          V.cvN = c; if (add.length) { V.list = V.list.concat(add); appendRows(V.list.length - V.shown); watch(); }
-        }
-      }
-      return paintLive();
-    }
+    if (nd !== V.data) { V.data = nd; V.cc = countBy(nd); }
     if (V.n) return paintCount();                          // đang xem kết quả tìm: không xếp lại dưới tay
-    const f = filterRows(nd, V.q, V.g); V.list = f.list; V.byG = f.byG; V.cnt = f.cnt;
-    paintChips(); paintLive();
+    paintLive();
   }
   const liveTick = () => { if (!V.lt) V.lt = setTimeout(liveApply, LIVE_MS); };
 
-  // ---------- "Bắt đầu tìm": danh sách đủ -> lọc tại máy · đang tải / chưa đủ -> DỪNG lượt tải, hỏi máy chủ theo từng từ khoá ----------
+  // ---------- "Bắt đầu tìm": danh sách đủ -> lọc tại máy · đang tải / chưa đủ -> DỪNG lượt tải tên, hỏi máy chủ theo từng từ khoá ----------
   function stopLoad() {
     const R = RUN; if (!R || !R.ac) return false;
     try { TabLoad.invalidate("students"); } catch {}      // xong (dở) -> lần vào tab sau tải lại từ đầu
@@ -939,7 +892,7 @@
     res.forEach((x) => { if (x.e) { if (!(x.e.aborted || x.e.cancelled)) bad++; return; } stuOf(x.r).forEach((p) => { const r = fromSearch(p); if (r && (r.y == null || r.y === year)) rows.push(r); }); });
     const added = addRows(rows, year);
     if (bad && bad === res.length) { try { toast("Không tìm được trên máy chủ — kiểm tra mạng rồi thử lại."); } catch {} }
-    if (onStudents() && $("stuList")) { if (added) V.data = withExtra(V.data || []); refresh(Math.max(FIRST, V.shown)); }
+    if (onCls() && $(LIST)) { if (added) V.data = withExtra(V.data || []); refresh(Math.max(FIRST, V.shown)); }
     return added;
   }
   // gộp kết quả tìm vào danh sách đang có (bộ nhớ + bản lưu máy) và EXTRA
@@ -956,70 +909,169 @@
     return added;
   }
 
+  // ---------- lượt tải TÊN ở nền ----------
+  // theo dõi 1 lượt: xong -> vẽ lại màn đang mở (lưới thẻ / phần Thiếu nhi của lớp không xem được) · lỗi -> ghi chú + Thử lại
+  function hook(p) {
+    if (!p || V.np === p) return p;
+    V.np = p;
+    p.then(() => { if (V.np === p) V.np = null; namesDone(); }, (e) => { if (V.np === p) V.np = null; namesFail(e); });
+    return p;
+  }
+  function namesDone() {
+    if (onCls() && $(LIST)) { const d = dataOf(); if (d) update(d); else { paintNote(); paintLive(); } }
+    if (LIM != null) paintLimited(LIM);
+  }
+  function namesFail(e) {
+    if (e && e.cancelled && !e.aborted) return;            // đăng xuất giữa chừng
+    if (onCls() && $(LIST)) { try { TabLoad.takeErr("students"); } catch {} V.err = e; paintNote(); paintLive(); }   // báo ngay tại màn (không đợi lần vào sau)
+    if (LIM != null) paintLimited(LIM);
+  }
+  // bắt đầu (hoặc dùng chung) lượt tải tên — đã có / vừa tải (< 15 s) thì thôi · lỗi lúc ở xa mà chưa có tên nào -> ghi chú + Thử lại
+  function startNames() {
+    if (!TabLoad.src.students) return null;
+    const p = TabLoad.load("students");
+    if (!p) { const e = typeof TabLoad.takeErr === "function" ? TabLoad.takeErr("students") : null; if (e) { V.err = e; paintNote(); } return null; }
+    V.err = null; paintNote(); paintLive();
+    return hook(p);
+  }
+
   // ---------- onclick ----------
   function stuFilter(q) {
     V.q = String(q == null ? "" : q); clearTimeout(V.ft);
-    V.ft = setTimeout(() => { V.ft = 0; if ($("stuList")) refresh(FIRST); }, 140);   // gõ liên tục -> lọc 1 lần khi ngừng tay
+    V.ft = setTimeout(() => { V.ft = 0; if ($(LIST)) refresh(FIRST); }, 140);   // gõ liên tục -> lọc 1 lần khi ngừng tay
   }
   function stuGo() {
     const inp = $("stuq"); if (inp) { V.q = String(inp.value || ""); try { inp.blur(); } catch {} }   // ẩn bàn phím
     clearTimeout(V.ft); V.ft = 0;
     const kw = parseKw(V.q), m = V.meta || {}, loading = TabLoad.running("students");
-    if (V.cls == null) {                                   // trong 1 lớp: chỉ lọc tại máy (không dừng lượt tải các lớp đang chờ)
-      if (loading && (kw.name.length || kw.phone.length)) stopLoad();   // "kill cái cũ": dừng dò cả danh sách, tìm ngay
+    // gõ tên LỚP -> chỉ lọc thẻ (không dừng lượt tải tên) · tên / SĐT thiếu nhi -> "kill cái cũ": dừng dò, hỏi máy chủ ngay
+    if (!classMatches(kw).length) {
+      if (loading && (kw.name.length || kw.phone.length)) stopLoad();
       if (kw.name.length && canSearchUI() && (loading || !m.done || m.missing > 0)) serverSearch(kw);
     }
-    if ($("stuList")) refresh(FIRST);
+    if ($(LIST)) refresh(FIRST);
     try { window.scrollTo(0, 0); } catch {}
   }
-  function stuGroup(g) { V.g = g == null ? "*" : String(g); try { haptic(6); } catch {} clearTimeout(V.ft); V.ft = 0; if ($("stuList")) refresh(FIRST); }
-  // bấm thẻ lớp -> #/students/<id> (nhớ chỗ cuộn của lưới để Back về đúng chỗ) · lớp xong trước thì xem trước, lớp khác vẫn tải ngầm
+  function stuGroup(g) { V.g = g == null ? "*" : String(g); try { haptic(6); } catch {} clearTimeout(V.ft); V.ft = 0; if ($(LIST)) refresh(FIRST); }
+  // bấm thẻ lớp -> màn lớp (điểm danh… như cũ) · nhớ chỗ cuộn để quay lại đúng chỗ
   function stuClass(cid) {
     if (cid == null || cid === "") return;
-    V.ck = { y: window.scrollY || 0, g: V.g, at: Date.now() }; V.pushed = true;
-    try { haptic(6); } catch {}
-    go("#/students/" + encodeURIComponent(cid));
+    remember(); try { haptic(6); } catch {}
+    go("#/class/" + encodeURIComponent(cid));
   }
-  // ‹ về lưới thẻ: vào lớp từ lưới -> history.back() (y như nút Back Android / vuốt) · mở thẳng link lớp -> về #/students
-  function stuBack() {
-    try { haptic(6); } catch {}
-    if (V.pushed && routeCid() != null) { V.pushed = false; try { if (typeof history !== "undefined" && history.length > 1) { history.back(); return; } } catch {} }
-    go("#/students");
+  // mở hồ sơ 1 em (tab Lớp học vẫn sáng) · em vừa dò ra (chưa lưu) -> nhớ trước để hồ sơ rút gọn có dữ liệu
+  function stuP(pid) {
+    if (pid == null || pid === "") return;
+    const k = String(pid), hit = (r) => r && String(r.pid) === k;
+    const r = (V.data || []).find(hit) || (RUN && RUN.found ? Array.from(RUN.found.values()).find(hit) : null) || Array.from(EXTRA.values()).find(hit) || (S._students || []).find(hit);
+    if (r && r.p) { try { rememberPerson(r.p); } catch {} }
+    if (typeof window.openPerson === "function") window.openPerson(k, "classes"); else go("#/person/" + encodeURIComponent(k));
   }
-  function stuOpenCls(cid) { if (cid == null || cid === "") return; remember(); go("#/class/" + encodeURIComponent(cid)); }
-  // "Thử lại" / "Tải tiếp" trong ghi chú: tải lại ngay (bỏ qua 15 s vừa tải), màn vẽ lại khi xong
+  // "Thử lại" / "Tải tiếp": tải lại tên ngay (bỏ qua 15 s vừa tải) · bấm tay -> có % ở icon Lớp học khi rời tab
   function stuRetry() {
     const src = TabLoad.src.students; if (!src) return;
-    if (!TabLoad.running("students")) TabLoad.run("students", src.fetch, { silent: false, save: src.save });   // người dùng bấm tải lại / thử lại -> có % ở icon khi rời tab
-    render();
+    V.err = null; try { TabLoad.takeErr("students"); } catch {}
+    const p = TabLoad.running("students") ? TabLoad.load("students") : TabLoad.run("students", src.fetch, { silent: false, save: src.save });
+    hook(p); paintNote(); if (onCls()) paintLive(); if (LIM != null) paintLimited(LIM);
   }
-  // "Tải lại danh sách": bỏ qua bản lưu còn mới, dò lại cả niên khóa
+  // "Tải lại tên": bỏ qua bản lưu còn mới, dò lại cả niên khóa (số thiếu nhi luôn tự làm mới mỗi lần vào tab)
   function stuReload() {
-    if (TabLoad.running("students")) return toast("Đang tải danh sách…");
+    if (TabLoad.running("students")) return toast("Đang tải danh sách tên…");
     FORCE = true; stuRetry();
   }
-  // #/students (lưới thẻ) · #/students/<id lớp> (1 lớp) — render() của app.js gọi lại mỗi lần đổi hash
+
+  // ---------- MÀN #/classes ----------
+  function draw() {
+    stopIO();
+    const d = dataOf();
+    V.data = withLive(withExtra((d && d.rows) || [])); V.meta = (d && d.meta) || {};
+    const bar = appbar({ title: "Lớp học", bell: true, action: `<button class="act" id="stuReloadBtn" onclick="stuReload()" aria-label="Tải lại danh sách tên">${ic("refresh", 20)}</button><button class="act" onclick="go('#/search')" aria-label="Tìm kiếm">${ic("search", 20)}</button>` });
+    screen(bar + `<main><div class="wrap">
+        <div class="stu-sbar"><label class="searchbar">${ic("search", 18)}<input id="stuq" placeholder="Tên lớp, tên thiếu nhi, SĐT phụ huynh" autocomplete="off" enterkeyhint="search" value="${esc(V.q)}" oninput="stuFilter(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();stuGo()}"/></label>
+          <button class="btn sm stu-go" onclick="stuGo()">Bắt đầu tìm</button></div>
+        <div class="rev-status filterbar" id="stuChips"></div>
+        <div class="muted stu-count"><span id="stuCount"></span><a class="link" id="stuReload" onclick="stuReload()">Tải lại tên</a></div>
+        <div id="stuNote">${noteHtml(V.meta)}</div>
+        <div class="stu-list" id="${LIST}"></div>
+        <div class="stu-more" id="stuMore" aria-hidden="true"></div>
+      </div></main>`, "classes");
+    bindList();
+    const vk = viewKey(), moved = V.pv !== vk; V.pv = vk;
+    const k = V.keep; V.keep = null;                       // quay lại từ màn lớp / hồ sơ: vẽ đủ số em lúc trước + cuộn về chỗ cũ
+    const back = k && k.v === vk && k.q === V.q && k.g === V.g && Date.now() - k.at < 30 * 60e3;
+    refresh(back ? Math.max(FIRST, k.n) : FIRST);
+    const y = back ? k.y : moved ? 0 : -1;
+    if (y >= 0) { try { requestAnimationFrame(() => window.scrollTo(0, y)); } catch {} }
+  }
+  // tên đổi (lượt tải xong / dừng): giữ ô lọc + số em đang hiện (không giật cuộn)
+  function update(d) {
+    if (!$(LIST)) return;
+    V.data = withLive(withExtra((d && d.rows) || [])); V.meta = (d && d.meta) || {};
+    paintNote(); refresh(Math.max(FIRST, V.shown));
+  }
+  // #/classes — render() của app.js gọi lại mỗi lần đổi hash. SỐ: TabLoad "classes" (có rồi -> vẽ ngay + làm mới im lặng)
+  // · TÊN: TabLoad "students" chạy nền SAU khi có số (khỏi gọi danh sách lớp 2 lần)
   window.studentsScreen = function studentsScreen() {
-    // chuyển thẻ ⇄ lớp ngay trong tab, không có lượt tải nào đang chạy -> vẽ tại chỗ (khỏi gọi TabLoad.load = khỏi tải lại máy chủ)
-    if ($("stuList") && V.data && !TabLoad.running("students") && V.cls !== routeCid()) { draw(dataOf() || { rows: V.data, meta: V.meta }); return; }
-    stopIO(); V.live = false;
-    const p = tabScreen("students", { title: "Học sinh", what: "danh sách học sinh", draw, update });
-    if (!$("stuList") && RUN && RUN.found && RUN.found.size) liveApply();   // lần đầu đang dò (khung xương): vẽ ngay phần đã có, khỏi chờ nhịp sau
+    stopIO();
+    const p = tabScreen("classes", { title: "Lớp học", what: "danh sách lớp", draw, update: () => { if ($(LIST)) refresh(Math.max(FIRST, V.shown)); } });
+    if (haveCounts()) startNames();
+    else Promise.resolve(p).then(() => { if (onCls() && haveCounts()) startNames(); }, () => {});
     return p;
   };
+
+  // ---------- MÀN 1 LỚP KHÔNG XEM ĐƯỢC (403): phần Thiếu nhi = tên đã dò của lớp đó (nhảy theo bộ dò) ----------
+  const clsInfo = (cid) => { const k = String(cid), hit = (c) => c && String(c.id) === k; return (classList() || []).find(hit) || (typeof knownClass === "function" ? knownClass(cid) : null); };
+  function limRows(cid) {
+    const d = dataOf(), k = String(cid), rows = withLive(withExtra((d && d.rows) || [])).filter((r) => String(r.cid) === k);
+    const gk = new Map(rows.map((r) => [r, given(r.name)]));
+    return rows.sort((a, b) => ((isAct(a) ? 0 : 1) - (isAct(b) ? 0 : 1)) || cmp(gk.get(a), gk.get(b)) || cmp(a.name, b.name) || keyOf(a).localeCompare(keyOf(b)));   // Đang Học trước, theo TÊN
+  }
+  const phonesHtml = (r) => {
+    const [f, m, o] = r.ph || PH0, out = [];
+    if (f) out.push(`<span class="stu-ph">Cha ${phoneChip(f, r.name)}</span>`);
+    if (m) out.push(`<span class="stu-ph">Mẹ ${phoneChip(m, r.name)}</span>`);
+    if (o && o !== f && o !== m) out.push(`<span class="stu-ph">SĐT ${phoneChip(o, r.name)}</span>`);
+    return out.join("");
+  };
+  const limRow = (r) => `<div class="stu-row" data-pid="${esc(String(r.pid))}" role="button" tabindex="0" onclick="stuP(this.dataset.pid)">${avatar({ id: r.pid, name: r.name }, { size: 40, fs: 14 })}
+    <div class="grow">${r.cn ? `<div class="faint stu-cn">${esc(r.cn)}</div>` : ""}<div class="nm stu-nm">${esc(r.name || "—")}</div>
+      <div class="muted stu-sub">${r.birth ? `<span class="stu-dob">${ic("cake", 12)} ${esc(fmtDate(r.birth))}</span>` : ""}${phonesHtml(r)}</div></div>
+    ${r.result ? `<span class="chip ${RESULT_CLS[r.result] || "st-quit"} stu-res">${esc(r.result)}</span>` : ""}</div>`;
+  function paintLimited(cid) {
+    const body = $("tabBody"); if (!body || !onClassKids(cid)) return;
+    const rows = limRows(cid), t = actOf(clsInfo(cid)), n = rows.filter(isAct).length, loading = TabLoad.running("students");
+    const sig = [cid, rows.length, n, t, loading ? 1 : 0].join("|"); if (body.dataset && body.dataset.lim === sig) return;
+    if (body.dataset) body.dataset.lim = sig;
+    const full = t != null ? n >= t : !loading;
+    const note = full ? "" : `<div class="stu-mini lc-note">${ic("key", 14)}<span class="grow">${loading ? "Danh sách tên đang tải" : "Danh sách tên mới có"} ${n}${t != null ? "/" + t : ""}</span>${loading || !canSearchUI() ? "" : `<a class="link" onclick="stuRetry()">Tải tiếp</a>`}</div>`;
+    body.innerHTML = note + (rows.length ? `<div class="card stu-grp" id="lcList">${rows.map(limRow).join("")}</div>`
+      : emptyBox(ic(IC.kids ? "kids" : "users", 44), loading ? "Đang dò tên thiếu nhi của lớp này" : "Chưa có tên thiếu nhi nào của lớp này",
+        loading ? "Em nào tìm thấy sẽ hiện ngay." : "Tài khoản của bạn không xem được danh sách lớp này — tên được gom dần qua ô tìm kiếm."));
+  }
+  // app.js gọi khi lớp trả 403 (tab Thiếu nhi): vẽ tên đã có + chạy / dùng chung lượt dò ở nền (mở thẳng link lớp cũng được)
+  window.limitedClassBody = function limitedClassBody(cid) {
+    LIM = String(cid);
+    const b = $("tabBody"); if (b && b.dataset) b.dataset.lim = "";
+    startNames();
+    paintLimited(LIM);
+  };
+
   // đăng xuất: dừng lượt tải / tìm, bỏ cache (bộ nhớ + máy) + observer + hẹn giờ + bộ lọc (người đăng nhập sau không thấy gì của người trước)
   window.resetStudents = function resetStudents() {
     stopIO(); clearTimeout(V.ft); clearTimeout(V.lt);
     if (RUN) { try { RUN.ac.abort(); } catch {} RUN = null; }
     if (V.sq) { try { V.sq.ac.abort(); } catch {} }
-    FORCE = false; EXTRA.clear(); memo = null; CLS = null; dropAll();
+    FORCE = false; EXTRA.clear(); memo = null; CLS = null; LIM = null; dropAll();
     S._students = S._studentsMeta = null;
     Object.assign(V, V0());
   };
   window.stuFilter = stuFilter; window.stuGroup = stuGroup; window.stuRetry = stuRetry; window.stuGo = stuGo; window.stuReload = stuReload;
-  window.stuClass = stuClass; window.stuBack = stuBack; window.stuOpenCls = stuOpenCls;
-  // rời màn Học sinh -> ngắt observer ngay (onIO cũng tự ngắt khi mốc không còn trên trang)
-  window.addEventListener("hashchange", () => { if (!/^#\/students(\/|$)/.test(location.hash)) { stopIO(); clearTimeout(V.ft); V.ft = 0; V.live = false; V.pv = null; } });
+  window.stuClass = stuClass; window.stuP = stuP;
+  // rời màn Lớp học -> ngắt observer ngay (onIO cũng tự ngắt khi mốc không còn trên trang) · rời phần Thiếu nhi của lớp -> thôi vẽ tên
+  window.addEventListener("hashchange", () => {
+    if (!onCls()) { stopIO(); clearTimeout(V.ft); V.ft = 0; V.pv = null; }
+    if (LIM != null && !onClassKids(LIM)) LIM = null;
+  });
 
   // ---------- CSS riêng (index.html không có) ----------
   try {
@@ -1029,7 +1081,6 @@
 .stu-mini{display:flex;align-items:center;gap:7px;margin:0 4px 10px;font-size:12.5px;color:var(--ink-faint);line-height:1.3}.stu-mini svg{flex:none}.stu-mini.warn svg{color:var(--late-t)}.stu-mini .link{flex:none;font-weight:700}
 .act.stu-spin svg{animation:stuSpin .9s linear infinite}@keyframes stuSpin{to{transform:rotate(360deg)}}
 .stu-h{justify-content:space-between}.stu-h .eyebrow{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.stu-open{font-size:12.5px;flex:none;padding:4px 2px}
 .stu-grp{overflow:hidden}
 .stu-row{display:flex;align-items:center;gap:12px;padding:10px 14px;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .stu-row+.stu-row{border-top:1px solid var(--line)}
@@ -1038,7 +1089,7 @@
 .stu-cn{font-size:11.5px;line-height:1.25}
 .stu-nm{font-weight:700;font-size:15px}
 .stu-sub{font-size:12px;margin-top:1px;display:flex;flex-wrap:wrap;gap:2px 8px;align-items:center}
-.stu-dob{display:inline-flex;align-items:center;gap:3px}
+.stu-dob,.stu-ph{display:inline-flex;align-items:center;gap:3px}
 .stu-res{padding:5px 9px;font-size:11.5px;flex:none}
 .stu-more{height:1px}
 .stu-sbar{display:flex;gap:8px;align-items:center;margin:2px 0 12px}
@@ -1046,30 +1097,29 @@
 .stu-sbar .stu-go{flex:none;min-height:46px;padding:8px 14px}
 .stu-count{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 6px 12px;font-size:13px}
 .stu-count .link{font-size:12.5px;flex:none;white-space:nowrap}
+.stu-ld{font-size:11.5px;color:var(--ink-faint)}
 .stu-ng,.stu-lab{display:inline-flex;align-items:center;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:700;line-height:1.5}
 .stu-lab{background:var(--fill);color:var(--ink-soft);box-shadow:inset 0 0 0 1px var(--line)}
 .stu-sub .phone{font-size:12px}
 .stu-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:6px}
+.stu-cards.stu-cm{margin-bottom:14px}
 .stu-cards>.stu-gh{grid-column:1/-1;margin:14px 6px 0}.stu-cards>.stu-gh:first-child{margin-top:2px}
-.stu-card{position:relative;display:flex;align-items:center;gap:9px;min-width:0;padding:10px 10px 14px;border-radius:var(--r-m);background:var(--bubble);border:1px solid var(--bubble-line);box-shadow:var(--bubble-hi),var(--bubble-shadow);cursor:pointer;overflow:hidden;-webkit-tap-highlight-color:transparent;transition:transform .3s;--k:var(--brand-2)}
+.stu-card{position:relative;display:flex;align-items:center;gap:9px;min-width:0;padding:10px;border-radius:var(--r-m);background:var(--bubble);border:1px solid var(--bubble-line);box-shadow:var(--bubble-hi),var(--bubble-shadow);cursor:pointer;overflow:hidden;-webkit-tap-highlight-color:transparent;transition:transform .3s;--k:var(--brand-2)}
 .stu-card:active{transform:scale(.96);transition-duration:.1s}
 .stu-card:focus-visible{outline:2px solid var(--brand-2);outline-offset:2px}
-.stu-card.t-pink,.stu-ch.t-pink{--k:#db2777}.stu-card.t-green,.stu-ch.t-green{--k:#16a34a}.stu-card.t-blue,.stu-ch.t-blue{--k:#2563eb}.stu-card.t-gold,.stu-ch.t-gold{--k:#d97706}
+.stu-card.t-pink{--k:#db2777}.stu-card.t-green{--k:#16a34a}.stu-card.t-blue{--k:#2563eb}.stu-card.t-gold{--k:#d97706}.stu-card.t-brown{--k:#8b5a2b}.stu-card.t-black{--k:#3a4048}
+:root[data-theme="dark"] .stu-card.t-black,:root.auto-dark .stu-card.t-black{--k:#9aa4b0}
 .stu-card.mine{border-color:var(--k);box-shadow:0 0 0 1.5px var(--k),var(--bubble-shadow)}
-.stu-card .cico,.stu-ch .cico{width:34px;height:34px;border-radius:12px;font-size:12.5px}
-.stu-card .grow,.stu-ch .grow{min-width:0}
+.stu-card .cico{width:34px;height:34px;border-radius:12px;font-size:12.5px}
+.stu-card .grow{min-width:0}
 .stu-cname{font-weight:700;font-size:14px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.stu-kn{display:flex;align-items:center;gap:3px;margin-top:2px;font-size:12.5px;color:var(--ink-soft);white-space:nowrap}
-.stu-kn b{color:var(--ink);font-weight:800;font-size:13.5px}
-.stu-kn.ok{color:var(--present-t);font-weight:700}
-.stu-bar{position:absolute;left:10px;right:10px;bottom:6px;height:3px;border-radius:99px;background:var(--fill-2);overflow:hidden}
-.stu-bar i{display:block;height:100%;width:0;border-radius:99px;background:var(--k);transition:width .35s ease}
-.stu-bar i.ok{background:var(--present-t)}
-.stu-ch{position:relative;display:flex;align-items:center;gap:10px;margin:0 2px 12px;padding:2px 2px 12px}
-.stu-ch .stu-bar{left:2px;right:2px;bottom:2px}
-.stu-back{flex:none;width:38px;height:38px;border:0;border-radius:50%;display:grid;place-items:center;padding:0;background:var(--fill);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line);cursor:pointer;-webkit-tap-highlight-color:transparent}
-.stu-back:active{transform:scale(.9)}
-.stu-ctn{font-weight:800;font-size:16.5px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stu-kn{display:flex;align-items:baseline;gap:4px;margin-top:2px;font-size:12.5px;color:var(--ink-soft);white-space:nowrap}
+.stu-kn b{color:var(--ink);font-weight:800;font-size:14px}
+.stu-nl{display:flex;align-items:center;gap:6px;margin-top:3px;font-size:11px;line-height:1.2;color:var(--ink-faint);white-space:nowrap}.stu-nl.ok{display:none}
+.stu-nb{flex:1;min-width:14px;max-width:64px;height:3px;border-radius:99px;background:var(--fill-2);overflow:hidden}
+.stu-nb b{display:block;height:100%;width:0;border-radius:99px;background:var(--k);transition:width .35s ease}
+.stu-wait{margin:0 6px 12px;font-size:13px}
+.lc-note{margin:0 4px 12px}
 .st-pink{background:rgba(236,72,153,.15);color:#be185d}
 .st-brown{background:rgba(139,90,43,.16);color:#8b5a2b}
 :root[data-theme="dark"] .st-brown,:root.auto-dark .st-brown{background:rgba(192,133,82,.22);color:#e2b48a}
@@ -1084,6 +1134,6 @@
 
   // cho test (node:vm) — không dùng trong app
   window.__stu = { norm, fromSearch, usable, keyOf, collect, absorb, sortRows, expectedOf, totalsOf, filterRows, parseKw, nganhOf, groupsOf, fetchStudents, fetchOwn, makeEnum, runEnum, probe, saveAll, loadAll, dataOf,
-    appendRows, renderList, refresh, draw, update, watch, stopIO, stopLoad, serverSearch, addRows, stuGo, liveApply, cardsOf, paintCards, paintHead, withLive, routeCid, classList, cls: () => CLS,
-    V, EXTRA, run: () => RUN, PER, MAX_PAGES, FIRST, CHUNK, LIVE_MS, BUDGET, SEEDS, ALL_KEY, CAP_KEY, DENY_KEY };
+    appendRows, renderList, refresh, draw, update, watch, stopIO, stopLoad, serverSearch, addRows, stuGo, liveApply, cardsOf, paintCards, withLive, classList, classMatches, chipData, startNames, paintLimited, limRows,
+    cls: () => CLS, lim: () => LIM, V, EXTRA, run: () => RUN, PER, MAX_PAGES, FIRST, CHUNK, LIVE_MS, BUDGET, SEEDS, ALL_KEY, CAP_KEY, DENY_KEY, LIST };
 })();
