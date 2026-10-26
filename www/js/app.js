@@ -200,6 +200,7 @@ const IC = {
   book: '<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M6 3v16"/>',
   users: '<circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 5.5a3 3 0 0 1 0 5.8"/><path d="M17.5 14.5A5.5 5.5 0 0 1 21 20"/>',
   user: '<circle cx="12" cy="8" r="3.6"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>',
+  kids: '<circle cx="12" cy="13" r="8"/><path d="M11.2 5.1c.1-1.7 1.6-2.9 3.4-2.6"/><path d="M9 12h.01M15 12h.01"/><path d="M9.5 15.6c1.4 1.3 3.6 1.3 5 0"/>',   // mặt em nhỏ (chỏm tóc) — tab Học sinh
   back: '<path d="M15 5l-7 7 7 7"/>',
   check: '<path d="M4 12.5l5 5L20 6"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/>',
@@ -235,10 +236,15 @@ const IC = {
 const ic = (n, w = 24) => `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${IC[n] || ""}</svg>`;
 
 // ---------- top progress bar ----------
-let _prog = { el: null, v: 0, t: null };
+// own: key tab đang "giữ" thanh (TabLoad vẽ % thật/ước lượng của tab đó) · null = progStart/progDone thường.
+// progDone() thường không đụng thanh tab đang giữ: tab tự kết thúc (progEnd) hoặc bỏ khi rời tab (progDrop).
+let _prog = { el: null, v: 0, t: null, h: null, own: null };
 function progEl() { if (!_prog.el) { _prog.el = document.createElement("div"); _prog.el.className = "topbar"; document.body.appendChild(_prog.el); } return _prog.el; }
-function progStart() { const e = progEl(); clearInterval(_prog.t); _prog.v = 8; e.classList.add("run"); e.style.width = "8%"; _prog.t = setInterval(() => { _prog.v = Math.min(_prog.v + (90 - _prog.v) * 0.18, 90); e.style.width = _prog.v + "%"; }, 180); }
-function progDone() { const e = progEl(); clearInterval(_prog.t); e.style.width = "100%"; setTimeout(() => { e.classList.remove("run"); e.style.width = "0"; }, 260); }
+function progStart() { const e = progEl(); clearInterval(_prog.t); clearTimeout(_prog.h); _prog.own = null; _prog.v = 8; e.classList.add("run"); e.style.width = "8%"; _prog.t = setInterval(() => { _prog.v = Math.min(_prog.v + (90 - _prog.v) * 0.18, 90); e.style.width = _prog.v + "%"; }, 180); }
+function progDone() { if (_prog.own) return; const e = progEl(); clearInterval(_prog.t); clearTimeout(_prog.h); e.style.width = "100%"; _prog.h = setTimeout(() => { e.classList.remove("run"); e.style.width = "0"; }, 260); }
+function progSet(pct, own) { const e = progEl(); clearInterval(_prog.t); clearTimeout(_prog.h); _prog.own = own || null; _prog.v = Math.max(3, Math.min(100, pct)); e.classList.add("run"); e.style.width = _prog.v + "%"; }
+function progEnd(own) { if (_prog.own !== own) return; _prog.own = null; progDone(); }   // tab đang giữ thanh tải xong -> chạy tới 100%
+function progDrop(own) { if (_prog.own !== own) return; const e = progEl(); clearInterval(_prog.t); clearTimeout(_prog.h); _prog.own = null; e.classList.remove("run"); e.style.width = "0"; }   // rời tab -> thôi hiện
 
 // ---------- mở app ngoài (gọi / sms / zalo) ----------
 function openExternal(url) { try { if (window.Capacitor?.Plugins?.App) { location.href = url; } else window.open(url, "_system") || (location.href = url); } catch { location.href = url; } }
@@ -295,10 +301,11 @@ function refreshBell() {
   _bellLast = n;
 }
 // ---------- thanh tab nổi: tạo 1 lần, bong bóng trượt giữa các tab, kéo ngang để chuyển ----------
-const TABS = [["home", "Trang chủ", "#/home", "home"], ["book", "Lớp học", "#/classes", "classes"], ["users", "Giáo lý viên", "#/teachers", "teachers"], ["user", "Tôi", "#/me", "me"]];
+const TABS = [["home", "Trang chủ", "#/home", "home"], ["book", "Lớp học", "#/classes", "classes"], ["kids", "Học sinh", "#/students", "students"], ["users", "Giáo lý viên", "#/teachers", "teachers"], ["user", "Tôi", "#/me", "me"]];
 function tabbarEl() {
   let tb = $("tabbar"); if (tb) return tb;
   tb = document.createElement("nav"); tb.id = "tabbar"; tb.className = "tabbar"; tb.setAttribute("role", "tablist");
+  tb.style.setProperty("--tabs", TABS.length);   // CSS chia cột + bề rộng bong bóng theo số tab
   tb.innerHTML = `<i class="tb-bubble"></i>` + TABS.map(([i, l, , k], n) => `<a role="tab" data-k="${k}" onclick="tabTo(${n})">${ic(i)}<span>${l}</span></a>`).join("");
   document.body.appendChild(tb); bindTabDrag(tb);
   return tb;
@@ -313,6 +320,8 @@ function setTab(key) {
 function tabTo(n) {
   const t = TABS[n]; if (!t) return;
   haptic(8); setTab(t[3]);
+  // tab có tải nền: bắt đầu tải NGAY lúc bấm — bấm liên tiếp thật nhanh thì các hashchange dồn lại, render() chỉ thấy hash cuối
+  if ((location.hash !== t[2] || root.dataset.hash !== t[2]) && TabLoad.src[t[3]]) { TabLoad.focus(t[3]); TabLoad.load(t[3]); }
   if (location.hash !== t[2]) go(t[2]);
   else if (root.dataset.hash !== t[2]) render();                     // địa chỉ đúng mà màn đang hiện lại khác -> vẽ lại
   else window.scrollTo({ top: 0, behavior: "smooth" });              // bấm lại tab đang mở -> cuộn lên đầu
@@ -320,7 +329,8 @@ function tabTo(n) {
 function bindTabDrag(tb) {
   let sx = null, moved = false, left = 0, w = 0, last = -1;
   const at = (x) => Math.max(0, Math.min(TABS.length - 1, Math.floor((x - left) / w)));
-  tb.addEventListener("pointerdown", (e) => { const r = tb.getBoundingClientRect(); left = r.left + 4; w = (r.width - 8) / TABS.length; sx = e.clientX; moved = false; last = -1; });
+  // ô tab = (khung trong − padding 4px mỗi bên) / số tab — trừ cả viền 1px để khớp lưới CSS & bong bóng
+  tb.addEventListener("pointerdown", (e) => { const r = tb.getBoundingClientRect(), bl = tb.clientLeft || 0, iw = tb.clientWidth || r.width - 2 * bl; left = r.left + bl + 4; w = (iw - 8) / TABS.length; sx = e.clientX; moved = false; last = -1; });
   tb.addEventListener("pointermove", (e) => {
     if (sx == null || (!moved && Math.abs(e.clientX - sx) < 10)) return;
     if (!moved) { moved = true; tb.classList.add("drag"); try { tb.setPointerCapture(e.pointerId); } catch {} }
@@ -339,6 +349,118 @@ function bindTabDrag(tb) {
   tb.addEventListener("click", (e) => { if (Date.now() < (tb._swallowUntil || 0)) { e.stopPropagation(); e.preventDefault(); } }, true);
 }
 window.tabTo = tabTo;
+// ---------- TẢI NỀN cho tab (Lớp học, Giáo lý viên, …) + badge % nhỏ trên icon tab ----------
+// run(key, fn, o): fn(prog) trả Promise dữ liệu; gọi prog(%) hoặc prog(xong, tổng) để báo tiến độ THẬT
+//   (tải nhiều request: gọi prog(0, n) ngay đầu rồi prog(i, n) sau mỗi request — % tự nhích dần trong từng bước).
+//  · gọi lại khi đang chạy -> trả CHÍNH promise đó (không gọi API lần 2)
+//  · xong là o.save(data) NGAY, dù người dùng đã sang tab khác (NAV/stale() chỉ chặn VẼ, không bỏ dữ liệu)
+//  · không báo % thật -> % ước lượng: tiến dần tới ~90% theo thời gian đo lần trước (nhớ localStorage, mặc định 2s), xong nhảy 100%
+// Badge chỉ hiện khi tab đang tải lần đầu (chưa có cache — làm mới cache thì im lặng) VÀ người dùng không đứng ở tab đó.
+//  Xong lúc ở xa -> xanh ✓ ~0,7s rồi trượt xuống biến mất · lỗi -> đỏ "!" rồi ẩn (mở tab sẽ thấy hộp lỗi + Thử lại).
+//  Đang đứng ở tab -> không badge, thanh tiến độ trên cùng chạy theo % của tab.
+// Treo (mạng chết, không trả cũng không lỗi): IDLE_MS không có tiến độ -> coi là lỗi (hộp lỗi + Thử lại), kết quả về muộn bị bỏ.
+const TabLoad = {
+  st: {}, src: {}, cur: null, gen: 0,
+  DEF_MS: 2000, CAP: 90, TICK: 120, OK_MS: 700, ERR_MS: 1300, OUT_MS: 300, FRESH_MS: 15000, IDLE_MS: 45000, MS_KEY: "bgl-tabload-ms",
+  def(key, src) { this.src[key] = src; },                 // src: { data() -> cache hiện có | null, fetch(prog) -> Promise, save(data) }
+  running(key) { const s = this.st[key]; return !!(s && s.running); },
+  takeErr(key) { const s = this.st[key], e = s && s.err; if (s) s.err = null; return e || null; },   // lỗi chưa ai báo (lấy 1 lần)
+  estMs(key) { const m = store.get(this.MS_KEY, {}), v = Number(m && m[key]); return v > 0 ? v : this.DEF_MS; },
+  // dữ liệu vừa sửa trong app (vd. đổi kết quả 1 em) -> lần vào tab sau tải lại · đang tải dở -> xong cũng không tính là "vừa tải"
+  invalidate(key) { const s = this.st[key]; if (s) { s.okAt = 0; if (s.running) s.redo = true; } },
+  saveMs(key, ms) { let m = store.get(this.MS_KEY, {}); if (!m || typeof m !== "object") m = {}; m[key] = Math.round(Math.max(300, Math.min(60000, ms))); store.set(this.MS_KEY, m); },
+  // Vào tab: đang tải -> dùng chung · lỗi lúc ở xa chưa báo (chưa có cache) -> null: màn hiện hộp lỗi + Thử lại trước, không tự tải lại
+  // · có cache vừa tải (< FRESH_MS) -> null (khỏi tải) · có cache -> làm mới im lặng · chưa có -> tải lần đầu
+  load(key) {
+    const src = this.src[key], s = this.st[key]; if (!src) return null;
+    if (s && s.running) return s.p;
+    const has = src.data() != null;
+    if (s && s.err && !has) return null;
+    if (has && s && s.okAt && Date.now() - s.okAt < this.FRESH_MS) return null;
+    return this.run(key, src.fetch, { silent: has, save: src.save });
+  },
+  run(key, fn, o = {}) {
+    const old = this.st[key]; if (old && old.running) return old.p;
+    if (old) this.unflash(key);
+    const gen = this.gen, s = this.st[key] = { pct: 0, ceil: 0, running: true, err: null, startedAt: Date.now(), silent: !!o.silent, real: false, est: this.estMs(key), okAt: old ? old.okAt : 0, flash: null, t: null, ft: null, wd: null, redo: false };
+    let rej; const tmo = new Promise((_, r) => { rej = r; });
+    const arm = () => { clearTimeout(s.wd); s.wd = setTimeout(() => rej(new Error("Máy chủ không phản hồi — kiểm tra mạng rồi thử lại.")), this.IDLE_MS); };   // mỗi lần có tiến độ -> hẹn lại
+    arm();
+    const prog = (done, total) => {
+      if (!s.running || gen !== this.gen) return;
+      arm();
+      const n = Number(total) > 0 ? Number(total) : 0, v = n ? (Number(done) / n) * 100 : Number(done); if (!isFinite(v)) return;
+      s.real = true; s.pct = Math.max(s.pct, Math.min(99, Math.max(0, v)));
+      s.ceil = n ? Math.max(s.pct, Math.min(99, ((Number(done) + 1) / n) * 100)) : s.pct;   // trần = hết bước đang chạy
+      this.sync(key);
+    };
+    s.t = setInterval(() => this.tick(key, s), this.TICK);
+    s.p = Promise.race([new Promise((res) => res(fn(prog))), tmo])
+      .then((data) => { clearTimeout(s.wd); if (gen === this.gen) { if (o.save) o.save(data); this.end(key, s, null); } return data; })
+      .catch((e) => { clearTimeout(s.wd); e = e || new Error("Lỗi tải dữ liệu"); if (gen === this.gen && s.running) this.end(key, s, e); throw e; });
+    s.p.catch(() => {});                                   // người dùng đã đi, không ai chờ -> không báo "unhandled"
+    this.sync(key);
+    return s.p;
+  },
+  end(key, s, err) {
+    clearInterval(s.t); s.running = false;
+    if (err) s.err = err; else { s.err = null; s.pct = 100; s.okAt = s.redo ? 0 : Date.now(); s.redo = false; this.saveMs(key, Date.now() - s.startedAt); }
+    if (this.cur === key) { progEnd(key); this.badge(key, null); }   // đang ở tab: chỉ thanh trên cùng chạy nốt
+    else if (!s.silent) this.flash(key, err ? "err" : "ok");
+    else this.badge(key, null);
+  },
+  // ước lượng: CAP·(1 − e^(−2,2·t/T)) — tới t = T (lần đo trước) ≈ 80%, không bao giờ vượt CAP; % thật: nhích dần tới trần của bước
+  tick(key, s) {
+    if (!s.running) return;
+    const v = s.real ? s.pct + (s.ceil - s.pct) * 0.06 : this.CAP * (1 - Math.exp((-2.2 * (Date.now() - s.startedAt)) / s.est));
+    if (v > s.pct + 0.05) { s.pct = Math.min(s.real ? 99 : this.CAP, v); this.sync(key); }
+  },
+  // render() báo tab (route gốc) đang đứng — rời tab đang tải thì thanh trên cùng thôi hiện % của nó, các tab khác hiện badge
+  focus(k) {
+    k = k || null; const prev = this.cur; if (prev === k) return; this.cur = k;
+    if (prev) progDrop(prev);
+    if (k) this.unflash(k);
+    Object.keys(this.st).forEach((x) => this.sync(x));
+  },
+  sync(key) {
+    const s = this.st[key]; if (!s) return;
+    const here = this.cur === key;
+    if (s.running && here) progSet(s.pct, key);
+    if (s.flash) return;                                   // đang nháy ✓ / ! -> hẹn giờ tự ẩn
+    this.badge(key, s.running && !s.silent && !here ? Math.floor(s.pct) + "%" : null, "");
+  },
+  flash(key, kind) {
+    const s = this.st[key]; if (!s) return; this.unflash(key);
+    const txt = kind === "ok" ? "✓" : "!";
+    if (!this.badge(key, txt, kind)) return;               // chưa có thanh tab -> thôi
+    s.flash = kind;
+    s.ft = setTimeout(() => {
+      if (!this.fx()) return this.unflash(key);            // tắt hiệu ứng: ẩn luôn, không trượt
+      this.badge(key, txt, kind + " out");
+      s.ft = setTimeout(() => this.unflash(key), this.OUT_MS);
+    }, kind === "ok" ? this.OK_MS : this.ERR_MS);
+  },
+  unflash(key) { const s = this.st[key]; if (!s) return; clearTimeout(s.ft); s.ft = null; if (s.flash) { s.flash = null; this.badge(key, null); } },
+  badge(key, text, cls) {
+    const a = this.tabEl(key); if (!a) return null;
+    let b = a.querySelector(".tb-pct");
+    if (text == null) { if (b) b.remove(); return null; }
+    if (!b) { b = document.createElement("b"); a.appendChild(b); }
+    const c = "tb-pct" + (cls ? " " + cls : ""); if (b.className !== c) b.className = c;
+    if (b.textContent !== text) b.textContent = text;
+    return b;
+  },
+  tabEl(key) { try { const tb = document.getElementById("tabbar"); return (tb && tb.querySelector(`a[data-k="${key}"]`)) || null; } catch { return null; } },
+  fx() { try { return !document.documentElement.classList.contains("no-fx"); } catch { return true; } },
+  // đăng xuất: bỏ hết (lượt đang chạy của tài khoản cũ xong cũng không lưu)
+  reset() {
+    this.gen++;
+    Object.keys(this.st).forEach((k) => { const s = this.st[k]; clearInterval(s.t); clearTimeout(s.ft); clearTimeout(s.wd); s.running = false; s.flash = null; this.badge(k, null); progDrop(k); });
+    this.st = {}; this.cur = null;
+    try { document.getElementById("tabbar").querySelectorAll(".tb-pct").forEach((b) => b.remove()); } catch {}   // phòng hờ: không còn badge nào của mọi tab (kể cả tab thêm sau)
+  },
+};
+window.TabLoad = TabLoad;
 // ---------- chống "màn cũ vẽ đè": mỗi lần điều hướng NAV tăng 1; màn nào tải API xong mà
 // người dùng đã sang màn khác (NAV đổi) thì bỏ kết quả, không vẽ đè lên màn đang xem ----------
 let NAV = 0;
@@ -352,7 +474,8 @@ function hideBoot() { const b = $("boot"); if (!b) return; b.classList.add("out"
 setTimeout(hideBoot, 12000);  // phòng hờ: không để kẹt màn khởi động
 function screen(html, navKey) { paint(html, navKey); progDone(); hideBoot(); }
 function skelCard() { return `<div class="card pad"><div class="row"><div class="skel" style="width:46px;height:46px;border-radius:50%"></div><div class="grow"><div class="skel" style="height:11px;width:38%;margin-bottom:9px"></div><div class="skel" style="height:16px;width:66%"></div></div></div><div class="skel" style="height:58px;margin-top:14px"></div></div>`; }
-function loading(navKey) { progStart(); paint(appbar({}) + `<main><div class="wrap stack">${skelCard()}${skelCard()}${skelCard()}</div></main>`, navKey); }
+function skeleton(navKey) { paint(appbar({}) + `<main><div class="wrap stack">${skelCard()}${skelCard()}${skelCard()}</div></main>`, navKey); }   // khung xương, không tự chạy thanh tiến độ
+function loading(navKey) { progStart(); skeleton(navKey); }
 function haptic(ms = 12) { if (effectsOn() && navigator.vibrate) { try { navigator.vibrate(ms); } catch {} } }
 function emptyBox(icon, msg, sub) { return `<div class="empty"><div class="big">${icon}</div><div style="font-weight:600;color:var(--ink)">${esc(msg)}</div>${sub ? `<div style="margin-top:6px">${esc(sub)}</div>` : ""}</div>`; }
 const ERR_VN = { Forbidden: "Tài khoản của bạn không có quyền xem mục này.", "Not Found": "Không tìm thấy dữ liệu.", "Failed to fetch": "Không kết nối được máy chủ — kiểm tra mạng." };
@@ -492,7 +615,8 @@ async function doLogin(uSaved) {
   const b = $("loginBtn"); b.disabled = true; b.innerHTML = `<span class="btnspin"></span> Đang đăng nhập…`;
   progStart();
   try {
-    S.user = await BGL.login(u, p);
+    const user = await BGL.login(u, p);
+    resetAccountData(); S.user = user;   // phòng hờ: không mang gì của phiên trước sang tài khoản vừa đăng nhập
     if (remember) await saveCred(u, p); else await clearCred();
     b.innerHTML = `${ic("check", 18)} Thành công`; showAuth("Đăng nhập thành công", "ok");
     await boot(); progDone(); setTimeout(() => go(landingHash()), 350);
@@ -509,10 +633,18 @@ async function bioLogin() {
 }
 window.doLogin = doLogin; window.bioLogin = bioLogin;
 
+// Bỏ hết dữ liệu của tài khoản cũ (đăng xuất / đăng nhập tài khoản khác): cache các tab, lượt tải nền + badge mọi tab,
+// mục Học sinh (students.js tự dọn cache/observer/hẹn giờ), lớp & người đã nhớ — người đăng nhập sau không thấy gì của người trước
+function resetAccountData() {
+  S._classes = S._teachers = S._students = S._studentsMeta = null; S.myAssignments = []; S.myClassId = null;
+  TabLoad.reset();
+  try { if (typeof window.resetStudents === "function") window.resetStudents(); } catch {}
+  for (const k in CX) delete CX[k]; for (const k in PEOPLE) delete PEOPLE[k];
+  PERSON_NAV = null;
+}
 async function doLogout() {
   closeSheet(); try { await BGL.logout(); } catch {}
-  S.user = null; S._classes = S._teachers = null; S.myAssignments = []; S.myClassId = null;   // không để dữ liệu tài khoản cũ cho người đăng nhập sau
-  for (const k in CX) delete CX[k]; for (const k in PEOPLE) delete PEOPLE[k];
+  S.user = null; resetAccountData();
   NAV++; loginScreen();
 }
 window.doLogout = doLogout;
@@ -572,26 +704,39 @@ function classRowCard(c, position, primary) {
 // ============================================================
 //  CLASSES
 // ============================================================
-async function classesScreen() {
-  const t = NAV, had = !!S._classes;
-  const draw = (list) => screen(appbar({ title: "Lớp học", bell: true, action: `<button class="act" onclick="go('#/search')">${ic("search", 20)}</button>` }) +
-    `<main><div class="wrap">
-      <label class="searchbar">${ic("search", 18)}<input id="clsq" placeholder="Lọc theo tên lớp…" oninput="filterClasses(this.value)"/></label>
-      <div class="stack" id="clsList">${list.map((c) => classRowCard(c)).join("")}</div>
-    </div></main>`, "classes");
-  // đã có danh sách lần trước -> hiện ngay, tải mới ở nền
-  if (had) { draw(S._classes); progStart(); } else loading("classes");
+// Màn gốc của tab tải nền (TabLoad): có cache -> vẽ ngay + làm mới im lặng ở nền · đang tải dở (bấm lúc trước rồi đi)
+// -> khung xương + thanh tiến độ của CHÍNH lượt đó, không gọi API lần 2 · chưa tải -> bắt đầu · lỗi lúc ở tab khác -> hộp lỗi (Thử lại)
+// o: { title, what (cho toast lỗi làm mới), draw(data) vẽ cả màn, update(data) khi làm mới thấy dữ liệu đổi }
+async function tabScreen(key, o) {
+  const t = NAV, old = TabLoad.src[key].data(), err = TabLoad.takeErr(key);
+  const fail = (e) => screen(appbar({ title: o.title }) + `<main>${errBox(e.message)}</main>`, key);
+  if (old == null && err && !TabLoad.running(key)) return fail(err);
+  if (old != null) o.draw(old); else skeleton(key);
+  const ld = TabLoad.load(key); TabLoad.sync(key);
+  if (!ld) return;                                       // vừa tải xong ở nền -> khỏi tải lại
   try {
-    const list = await BGL.classrooms(S.year && S.year.year);
-    const changed = JSON.stringify(list) !== JSON.stringify(S._classes);
-    S._classes = list;                                   // vẫn giữ để lần sau mở tab hiện ngay
-    if (stale(t)) return;
-    if (!had) draw(list); else { progDone(); if (changed && $("clsList")) filterClasses(($("clsq") || {}).value || ""); }
+    const data = await ld;
+    if (stale(t)) return;                                // đã sang màn khác: dữ liệu vẫn được lưu (TabLoad), chỉ không vẽ
+    if (old == null) o.draw(data);
+    else if (data !== old && JSON.stringify(data) !== JSON.stringify(old)) o.update(data);
   } catch (e) {
-    if (stale(t)) return;
-    if (had) { progDone(); toast("Không tải lại được danh sách lớp: " + (ERR_VN[e.message] || e.message)); }
-    else screen(appbar({ title: "Lớp học" }) + `<main>${errBox(e.message)}</main>`, "classes");
+    if (stale(t)) return;                                // lỗi lúc ở tab khác -> badge đỏ; mở tab lần sau thấy hộp lỗi
+    TabLoad.takeErr(key);                                // báo ngay tại đây rồi
+    if (old != null) toast(`Không tải lại được ${o.what}: ` + (ERR_VN[e.message] || e.message));
+    else fail(e);
   }
+}
+TabLoad.def("classes", { data: () => S._classes, fetch: () => BGL.classrooms(S.year && S.year.year), save: (list) => { S._classes = list; } });
+function classesScreen() {
+  return tabScreen("classes", {
+    title: "Lớp học", what: "danh sách lớp",
+    draw: (list) => screen(appbar({ title: "Lớp học", bell: true, action: `<button class="act" onclick="go('#/search')">${ic("search", 20)}</button>` }) +
+      `<main><div class="wrap">
+        <label class="searchbar">${ic("search", 18)}<input id="clsq" placeholder="Lọc theo tên lớp…" oninput="filterClasses(this.value)"/></label>
+        <div class="stack" id="clsList">${list.map((c) => classRowCard(c)).join("")}</div>
+      </div></main>`, "classes"),
+    update: () => { if ($("clsList")) filterClasses(($("clsq") || {}).value || ""); },
+  });
 }
 function filterClasses(q) {
   const nq = noAccent(q);
@@ -749,7 +894,12 @@ function resultPicker(cid, eid, cur) {
 }
 async function setResult(cid, eid, r) {
   closeSheet(); progStart(); haptic();
-  try { await BGL.updateEnrollment(eid, { result: r }); toast("Đã cập nhật: " + r); CX[cid].enr = null; await tabStudents(cid); }
+  try {
+    await BGL.updateEnrollment(eid, { result: r }); toast("Đã cập nhật: " + r); CX[cid].enr = null;
+    (S._students || []).forEach((x) => { if (String(x.id) === String(eid)) x.result = r; });   // tab Học sinh: sửa ngay em này + lần vào sau tải lại
+    TabLoad.invalidate("students"); TabLoad.invalidate("classes");                            // số liệu thẻ lớp cũng đổi
+    await tabStudents(cid);
+  }
   catch (e) { toast("Lỗi: " + e.message); }
   progDone();
 }
@@ -1271,29 +1421,20 @@ function teacherCard(t, classroomName) {
 // ============================================================
 //  TEACHERS (year)
 // ============================================================
-async function teachersScreen() {
-  const t = NAV, had = !!S._teachers;
+// API này chậm (~2s): có danh sách lần trước -> hiện ngay, tải mới ở nền (TabLoad)
+TabLoad.def("teachers", { data: () => S._teachers, fetch: () => BGL.teachersByYear(S.year && S.year.year), save: (list) => { list.forEach((x) => rememberPerson(x.person)); S._teachers = list; } });
+function teachersScreen() {
   const count = (list) => `${list.length} giáo lý viên · ${esc(S.year ? S.year.long_year : "")}`;
-  const draw = (list) => screen(appbar({ title: "Giáo lý viên", bell: true, action: `<button class="act" onclick="go('#/search')">${ic("search", 20)}</button>` }) +
-    `<main><div class="wrap">
-      <label class="searchbar">${ic("search", 18)}<input id="tq" placeholder="Lọc theo tên…" oninput="filterTeachers(this.value)"/></label>
-      <div class="muted" id="tCount" style="margin:0 6px 12px;font-size:13px">${count(list)}</div>
-      <div class="stack" id="tList">${list.map((x) => teacherCard(x, x.classroom && x.classroom.name)).join("")}</div>
-    </div></main>`, "teachers");
-  // đã có danh sách lần trước -> hiện ngay, tải mới ở nền (API này chậm ~2s)
-  if (had) { draw(S._teachers); progStart(); } else loading("teachers");
-  try {
-    const list = await BGL.teachersByYear(S.year && S.year.year);
-    const changed = JSON.stringify(list) !== JSON.stringify(S._teachers);
-    S._teachers = list; list.forEach((x) => rememberPerson(x.person));   // vẫn giữ để lần sau mở tab hiện ngay
-    if (stale(t)) return;
-    if (!had) draw(list);
-    else { progDone(); if (changed && $("tList")) { $("tCount").innerHTML = count(list); filterTeachers(($("tq") || {}).value || ""); } }
-  } catch (e) {
-    if (stale(t)) return;
-    if (had) { progDone(); toast("Không tải lại được danh sách GLV: " + (ERR_VN[e.message] || e.message)); }
-    else screen(appbar({ title: "Giáo lý viên" }) + `<main>${errBox(e.message)}</main>`, "teachers");
-  }
+  return tabScreen("teachers", {
+    title: "Giáo lý viên", what: "danh sách GLV",
+    draw: (list) => screen(appbar({ title: "Giáo lý viên", bell: true, action: `<button class="act" onclick="go('#/search')">${ic("search", 20)}</button>` }) +
+      `<main><div class="wrap">
+        <label class="searchbar">${ic("search", 18)}<input id="tq" placeholder="Lọc theo tên…" oninput="filterTeachers(this.value)"/></label>
+        <div class="muted" id="tCount" style="margin:0 6px 12px;font-size:13px">${count(list)}</div>
+        <div class="stack" id="tList">${list.map((x) => teacherCard(x, x.classroom && x.classroom.name)).join("")}</div>
+      </div></main>`, "teachers"),
+    update: (list) => { if ($("tList")) { $("tCount").innerHTML = count(list); filterTeachers(($("tq") || {}).value || ""); } },
+  });
 }
 function filterTeachers(q) {
   const nq = noAccent(q);
@@ -1316,9 +1457,19 @@ function rememberPerson(p, extra) {
   PEOPLE[k] = Object.assign({}, PEOPLE[k] || {}, clean, extra || {});
 }
 const isMe = (id) => S.user && S.user.person_id != null && String(S.user.person_id) === String(id);
+// Mở hồ sơ từ 1 danh sách thuộc tab khác (vd. Học sinh): nhớ tab cần sáng cho hồ sơ người đó (cả khi chuyển Cá nhân ⇄ Hành trình)
+// — không gọi qua đây (thẻ GLV, tìm kiếm…) thì sáng "teachers" như cũ · về màn gốc của 1 tab là quên
+let PERSON_NAV = null;   // { id, key }
+function openPerson(id, navKey) {
+  if (id == null || id === "") return;
+  PERSON_NAV = navKey ? { id: String(id), key: String(navKey) } : null;
+  const h = "#/person/" + id;
+  if (location.hash === h) render(); else go(h);
+}
+window.openPerson = openPerson;
 async function personScreen(id, tab) {
   tab = tab || "info"; loading();
-  const t = NAV, known = PEOPLE[String(id)];
+  const t = NAV, known = PEOPLE[String(id)], navKey = (PERSON_NAV && PERSON_NAV.id === String(id) && PERSON_NAV.key) || "teachers";
   let p, limited = false;
   if (known && known.can_view_profile === false && !isMe(id)) { p = known; limited = true; }   // biết trước sẽ bị 403 -> khỏi gọi API
   else {
@@ -1340,10 +1491,10 @@ async function personScreen(id, tab) {
         <div class="disp" style="font-size:22px">${esc(p.name || p.full_name)}</div>
         <div class="muted" style="font-size:13px;margin-top:2px">${[p.gender, p.birth_date ? fmtDate(p.birth_date) : ""].filter(Boolean).map(esc).join(" · ") || "&nbsp;"}</div>
       </div>
-      ${limited ? `<div class="note"><span class="note-ic">${ic("key", 18)}</span><div><b>Hồ sơ rút gọn</b><div>Tài khoản của bạn không được xem hồ sơ đầy đủ của người này. Thông tin bên dưới lấy từ danh sách giáo lý viên.</div></div></div>` : ""}
+      ${limited ? `<div class="note"><span class="note-ic">${ic("key", 18)}</span><div><b>Hồ sơ rút gọn</b><div>Tài khoản của bạn không được xem hồ sơ đầy đủ của người này. Thông tin bên dưới lấy từ danh sách.</div></div></div>` : ""}
       ${seg("person", [["info", "Cá nhân", `go('#/person/${id}/info')`], ["journey", "Hành trình", `go('#/person/${id}/journey')`]], tab === "journey" ? 1 : 0)}
       <div id="pBody"><div class="spin"></div></div>
-    </div></main>`, "teachers");
+    </div></main>`, navKey);
   if (tab === "journey") personJourney(id); else personInfo(p);
 }
 function kv(k, v) { return `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v || "—")}</span></div>`; }
@@ -1602,7 +1753,7 @@ window.debugSheet = debugSheet; window.toggleDebug = toggleDebug; window.clearDe
 //  (ảnh trong localStorage, tài khoản trong Keystore, cookie, cài đặt). Cài xong APK tự xoá.
 //  iOS / web: chỉ báo có bản mới + mở trang phát hành.
 // ============================================================
-const UPDATE_REPO = "Blowes/diemdanh-app", APP_VERSION = "1.3", UPD_KEY = "bgl-update-pending";
+const UPDATE_REPO = "Blowes/diemdanh-app", APP_VERSION = "1.4", UPD_KEY = "bgl-update-pending";
 const _upd = () => window.Capacitor?.Plugins?.AppUpdate;
 // Số thay đổi điểm danh chưa Xác nhận (chỉ nằm trong bộ nhớ) — cài bản mới sẽ đóng app làm mất chúng
 const updUnsent = () => { try { return Object.values(CX).reduce((n, c) => { const A = c && c.att; return n + (A && A.loaded ? (A.saving ? Math.max(1, changeCount(A)) : changeCount(A)) : 0); }, 0); } catch { return 0; } };
@@ -2382,16 +2533,31 @@ async function searchScreen(q) {
 }
 
 // ============================================================
+//  HỌC SINH — màn nằm ở js/students.js (nạp sau app.js). File đó lỗi / chưa nạp được -> báo nhẹ, app vẫn chạy.
+// ============================================================
+function studentsRoute() {
+  const t = NAV, title = "Học sinh";
+  const fail = (e) => { try { console.error(e); } catch {} if (!stale(t)) screen(appbar({ title, bell: true }) + `<main>${errBox((e && e.message) || "Không mở được mục Học sinh")}</main>`, "students"); };
+  // trang còn đang nạp (students.js chưa chạy tới) -> chờ nạp xong rồi mở
+  if (typeof window.studentsScreen !== "function" && document.readyState === "loading") { skeleton("students"); document.addEventListener("DOMContentLoaded", () => { if (!stale(t)) studentsRoute(); }, { once: true }); return; }
+  if (typeof window.studentsScreen !== "function") return screen(appbar({ title, bell: true }) + `<main>${emptyBox(ic("kids", 44), "Chưa mở được mục Học sinh", "Khởi động lại ứng dụng hoặc cập nhật lên bản mới nhất.")}</main>`, "students");
+  try { return Promise.resolve(window.studentsScreen()).catch(fail); } catch (e) { fail(e); }
+}
+
+// ============================================================
 //  ROUTER
 // ============================================================
 function render() {
   NAV++;   // màn nào còn đang tải của lần điều hướng trước sẽ tự bỏ kết quả
-  if (!S.user) return loginScreen();
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   const [r, a, b, c] = parts;
+  TabLoad.focus(S.user ? r || "home" : null);   // đang đứng ở tab nào: tab khác đang tải nền -> hiện badge %
+  if (!r || r === "search" || TABS.some((x) => x[3] === r)) PERSON_NAV = null;   // về màn gốc của tab -> quên tab của hồ sơ đã mở
+  if (!S.user) return loginScreen();
   if (!r || r === "home") return homeScreen();
   if (r === "classes") return classesScreen();
   if (r === "class") return classScreen(a, b, c);
+  if (r === "students") return studentsRoute();
   if (r === "teachers") return teachersScreen();
   if (r === "person") return personScreen(a, b);
   if (r === "me") return meScreen();

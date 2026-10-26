@@ -1,6 +1,6 @@
 {
   "name": "bglapp",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Điểm Danh - app điểm danh Ban Giáo Lý (Android + iOS) dùng API bglmautam.com",
   "private": true,
   "scripts": {

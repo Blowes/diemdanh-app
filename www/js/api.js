@@ -96,6 +96,13 @@ const BGL = {
 
   // ---------- Thiếu nhi (enrollment) ----------
   enrollments: (filters) => GET("v1/enrollments", { filters, per_page: 300 }).then(d),
+  // Thiếu nhi CẢ NIÊN KHÓA, 1 trang — giữ meta phân trang (web gọi y hệt, per_page 1000, chỉ mở cho Ban Điều Hành)
+  // -> { rows, total, totalPages, perPage, page } · meta thiếu thì total/totalPages = 0 (bên gọi tự dừng khi trang ngắn)
+  enrollmentsPage: (year, page, perPage) =>
+    GET("v1/enrollments", { filters: { classroom_year_eq: year }, per_page: perPage || 250, page: page || 1 }).then((r) => {
+      const rows = d(r), m = (r && r.meta) || {}, n = (v) => (Number(v) > 0 ? Math.floor(Number(v)) : 0);
+      return { rows: Array.isArray(rows) ? rows : [], total: n(m.total_count ?? m.total), totalPages: n(m.total_pages ?? m.pages), perPage: n(m.per_page), page: n(m.current_page ?? m.page) || page || 1 };
+    }),
   updateEnrollment: (id, payload) => PUT(`v1/enrollments/${id}`, { enrollment: payload }).then(d),
   createEnrollment: (payload) => POST("v1/enrollments", { enrollment: payload }).then(d),
 

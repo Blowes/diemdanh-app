@@ -183,10 +183,10 @@
     /* ===== THANH TAB NỔI: viên kính + bong bóng trượt theo tab (kéo ngang được) ===== */
     .tabbar{position:fixed;z-index:30;left:50%;bottom:calc(env(safe-area-inset-bottom) + var(--tab-gap));transform:translateX(-50%);
       width:min(440px,calc(100% - 28px));height:var(--tab-h);border-radius:999px;padding:4px;
-      display:grid;grid-template-columns:repeat(4,1fr);touch-action:none;user-select:none;-webkit-user-select:none;
+      display:grid;grid-template-columns:repeat(var(--tabs,4),minmax(0,1fr));touch-action:none;user-select:none;-webkit-user-select:none;
       transition:transform .4s var(--swift),opacity .25s}
     .tabbar[hidden]{display:none}
-    .tb-bubble{position:absolute;top:4px;bottom:4px;left:4px;width:calc((100% - 8px)/4);border-radius:999px;pointer-events:none;
+    .tb-bubble{position:absolute;top:4px;bottom:4px;left:4px;width:calc((100% - 8px)/var(--tabs,4));border-radius:999px;pointer-events:none;
       background:var(--tab-pill);box-shadow:inset 0 1px 0 rgba(255,255,255,.35);
       transform:translateX(calc(var(--ti,0) * 100%));transition:transform .6s var(--spring),background .25s,box-shadow .25s}
     .tabbar.drag .tb-bubble{transform:translateX(var(--dx,0)) scale(1.1,1.12);transition:transform .14s var(--swift);
@@ -194,12 +194,33 @@
       box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 8px 22px -8px rgba(0,0,0,.35),0 0 0 1px var(--glass-line)}
     .tabbar a{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
       color:var(--ink-soft);text-decoration:none;font-size:10.5px;font-weight:600;border-radius:999px;cursor:pointer;white-space:nowrap;
-      transition:color .2s}
+      transition:color .2s;min-width:0;container-type:inline-size}
+    /* nhiều tab hơn -> chữ nhỏ lại theo bề rộng ô (máy cũ không hỗ trợ cqi thì giữ 10.5px), quá dài thì "…" */
+    .tabbar a span{max-width:100%;padding:0 2px;overflow:hidden;text-overflow:ellipsis;font-size:min(10.5px,15.5cqi)}
     .tabbar a svg{width:24px;height:24px;transition:transform .45s var(--spring)}
     .tabbar a.on{color:var(--brand)}
     :root.auto-dark .tabbar a.on,:root[data-theme="dark"] .tabbar a.on{color:var(--brand-2)}
     .tabbar a.on svg{transform:scale(1.08)}
     .tabbar a:active svg{transform:scale(.9)}
+    /* badge % tải nền trên góc phải icon tab (TabLoad) — chỉ hiện khi tab đang tải mà mình đứng tab khác */
+    .tb-pct{position:absolute;top:3px;left:calc(50% + 5px);z-index:2;min-width:21px;height:16px;padding:0 5px;border-radius:9px;
+      background:var(--ink-soft);color:#fff;font:700 9.5px/16px var(--body);letter-spacing:-.01em;text-align:center;white-space:nowrap;
+      font-variant-numeric:tabular-nums;font-feature-settings:"tnum";pointer-events:none;
+      box-shadow:0 0 0 2px var(--glass-solid),0 2px 6px rgba(0,0,0,.22);
+      transition:transform .3s var(--swift),opacity .3s ease,background-color .2s,color .2s}
+    /* đang tải: viên xám trung tính (không lẫn với màu lớp / màu xanh "xong") */
+    :root.auto-dark .tb-pct,:root[data-theme="dark"] .tb-pct{color:#1d232a}
+    .tb-pct.ok{background:#15803d;color:#fff}
+    :root.auto-dark .tb-pct.ok,:root[data-theme="dark"] .tb-pct.ok{background:#22c55e;color:#06210f}
+    .tb-pct.err,:root.auto-dark .tb-pct.err,:root[data-theme="dark"] .tb-pct.err{background:#dc2626;color:#fff}
+    .tb-pct.out{transform:translateY(10px) scale(.7);opacity:0}
+    /* ô tab hẹp (5 tab trên máy ~360px): kéo badge sát icon hơn để "99%" không lòi ra ô bên cạnh */
+    @container (max-width:70px){.tb-pct{left:calc(50% + 2px);padding:0 4px}}
+    :root:not(.no-fx) .tb-pct{animation:tbPctIn .32s var(--spring)}
+    :root:not(.no-fx) .tb-pct.ok,:root:not(.no-fx) .tb-pct.err{animation:tbPctPop .4s var(--spring)}
+    :root.no-fx .tb-pct{transition:none;animation:none}
+    @keyframes tbPctIn{from{transform:scale(.4);opacity:0}}
+    @keyframes tbPctPop{45%{transform:scale(1.25)}}
 
     main{flex:1;padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 18px)}
     .wrap{padding:2px 16px 24px}
@@ -630,5 +651,6 @@
   <script src="js/unzip.js"></script>
   <script src="js/api.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/students.js"></script>
 </body>
 </html>
