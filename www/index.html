@@ -642,20 +642,39 @@
     /* ===== Điểm danh: nút "Tất cả có mặt" · Cần hỏi thăm — Thiếu nhi: Sinh nhật tuần này ===== */
     .btn.allin{margin-bottom:10px;min-height:56px;font-size:16px}
     .allin-n{font-weight:500;opacity:.85;font-size:14px}
-    .bday-row{display:flex;gap:10px;overflow-x:auto;margin:0 -4px;padding:2px 4px;scrollbar-width:none}
-    .bday-row::-webkit-scrollbar{display:none}
-    .bday-it{flex:none;width:96px;display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 6px;border:0;border-radius:18px;
-      background:var(--fill);font:inherit;color:inherit;transition:transform .4s var(--spring)}
-    .bday-it:active{transform:scale(.95)}
-    .bday-it.today{background:var(--gold-soft);box-shadow:inset 0 0 0 1.5px var(--gold)}
-    .bday-it .bn{font-size:13px;font-weight:600;text-align:center;line-height:1.2;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
-    .bday-it .bw{font-size:13px;color:var(--ink-soft);line-height:1.2;text-align:center}
-    .ask-row{display:flex;align-items:center;gap:12px;padding:12px 2px;transition:opacity .2s}
+    .bday{padding:10px 14px}
+    .bday .ask-chev{transform:rotate(90deg)}
+    .bday.open .ask-chev{transform:rotate(-90deg)}
+    .bday-body{display:none;margin-top:8px;border-top:1px solid var(--line)}
+    .bday.open .bday-body{display:block}
+    .bday-it{width:100%;display:flex;align-items:center;gap:10px;padding:7px 0;border:0;border-bottom:1px solid var(--line);background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+    .bday-it:last-child{border-bottom:0}
+    .bday-it .bn{flex:1;min-width:0;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .bday-it .bw{flex:none;font-size:12.5px;color:var(--ink-soft)}
+    .bday-it.today .bw{color:var(--gold);font-weight:700}
+    .askcard{padding:10px 14px;margin-bottom:12px}
+    .net-pill{position:fixed;z-index:45;left:50%;top:calc(env(safe-area-inset-top) + 8px);transform:translate(-50%,-16px);opacity:0;pointer-events:none;display:flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;font-size:12px;font-weight:600;color:var(--ink);background:var(--glass-solid);border:1px solid var(--glass-line);box-shadow:var(--glass-shadow);transition:opacity .25s,transform .4s var(--spring)}
+    .net-pill.on{opacity:1;transform:translate(-50%,0)}
+    .net-pill .dot{width:7px;height:7px;border-radius:50%;background:var(--danger);flex:none}
+    :root.no-fx .net-pill{transition:none}
+    .upd-home-n{margin:10px 0 0;padding-left:18px;font-size:13px;line-height:1.45;color:var(--ink-soft)}
+    .upd-home-n li+li{margin-top:2px}
+    .upd-home-ok{display:flex;align-items:center;justify-content:center;gap:6px;font-size:12.5px;padding:2px 0 6px}
+    .ask-head{appearance:none;background:none;border:0;margin:0;padding:2px 0;width:100%;display:flex;align-items:center;gap:8px;text-align:left;color:inherit;font:inherit;cursor:pointer}
+    .ask-sub{display:block;font-size:12.5px;margin-top:2px}
+    .ask-chev{flex:none;color:var(--ink-faint);transform:rotate(90deg);transition:transform .25s var(--spring)}
+    .askcard.open .ask-chev{transform:rotate(-90deg)}
+    .ask-body{margin-top:8px;border-top:1px solid var(--line)}
+    .ask-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line)}
+    .ask-row:last-child{border-bottom:0}
     .ask-row.done{opacity:.55}
-    .ask-ph{font-size:13px;display:flex;gap:0 14px;flex-wrap:wrap;margin-top:2px}
-    .ask-ph .phone{display:inline-flex;align-items:center;min-height:32px}
-    .check.ask-ok{margin-top:0;flex:none;flex-direction:column;gap:4px;min-width:64px;min-height:44px;justify-content:center}
-    .check.ask-ok span:last-child{font-size:13px;text-align:center;line-height:1.15}
+    .ask-row .nm{font-weight:600;font-size:14px;line-height:1.25}
+    .ask-meta{font-size:12px;color:var(--ink-faint);line-height:1.3}
+    .ask-ph{font-size:12.5px;display:flex;gap:0 12px;flex-wrap:wrap;color:var(--ink-soft)}
+    .ask-ph .phone{display:inline-flex;align-items:center;min-height:26px}
+    .check.ask-ok{margin:0;flex:none;min-width:36px;min-height:36px;justify-content:center}
+    .check.ask-ok .box{width:22px;height:22px}
+    .ask-did{appearance:none;background:none;border:0;padding:8px 0 2px;color:var(--ink-faint);font:inherit;font-size:12.5px;cursor:pointer}
 
     @media (prefers-reduced-motion:reduce){*{transition-duration:.01ms!important;animation:none!important}}
   </style>

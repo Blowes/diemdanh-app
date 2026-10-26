@@ -32,12 +32,21 @@ function qs(params) {
 //      POST/PUT/DELETE gọi native KHÔNG nhận signal -> đua với đồng hồ, kết quả về muộn bị bỏ qua ----
 const API_TIMEOUT = 15000;
 const apiNetErr = (msg, extra) => Object.assign(new Error(msg), { status: 0 }, extra);
-function apiFetch(url, opts, ms) {
-  let ac = null, tm; try { ac = new AbortController(); } catch {}
+const apiAbortErr = () => apiNetErr("Đã huỷ", { aborted: true, cancelled: true });
+// signal (tuỳ chọn, chỉ có nghĩa với GET): bên gọi huỷ -> ngắt request ngay, reject lỗi { aborted: true }
+function apiFetch(url, opts, ms, signal) {
+  if (signal && signal.aborted) return Promise.reject(apiAbortErr());
+  let ac = null, tm, off = null; try { ac = new AbortController(); } catch {}
   const run = fetch(url, ac ? Object.assign({}, opts, { signal: ac.signal }) : opts).then((res) => res.text().then((text) => ({ res, text })));
   run.catch(() => {});   // về muộn sau khi đã hết giờ -> nuốt lỗi, không thành unhandled rejection
-  const to = new Promise((_, rej) => { tm = setTimeout(() => { try { ac && ac.abort(); } catch {} rej(apiNetErr("Máy chủ không phản hồi — kiểm tra mạng rồi thử lại.", { timeout: true })); }, ms || API_TIMEOUT); });
-  return Promise.race([run, to]).finally(() => clearTimeout(tm));
+  const to = new Promise((_, rej) => {
+    tm = setTimeout(() => { try { ac && ac.abort(); } catch {} rej(apiNetErr("Máy chủ không phản hồi — kiểm tra mạng rồi thử lại.", { timeout: true })); }, ms || API_TIMEOUT);
+    if (signal && signal.addEventListener) {
+      const f = () => { try { ac && ac.abort(); } catch {} rej(apiAbortErr()); };
+      signal.addEventListener("abort", f, { once: true }); off = () => { try { signal.removeEventListener("abort", f); } catch {} };
+    }
+  });
+  return Promise.race([run, to]).finally(() => { clearTimeout(tm); if (off) off(); });
 }
 // Có phản hồi từ máy chủ (ok) / lỗi mạng -> app.js hiện chấm "mất kết nối"
 function apiNetEv(ok) { try { window.dispatchEvent(new CustomEvent("bgl-net", { detail: { ok } })); } catch {} }
@@ -63,7 +72,7 @@ function apiRefreshSession() {
   return _apiRefresh;
 }
 
-async function req(method, path, { params, body, _retried } = {}) {
+async function req(method, path, { params, body, signal, quiet, _retried } = {}) {   // quiet: request chạy ngầm -> không báo "mất kết nối"
   const url =
     (path.startsWith("http") ? path : `${API_BASE}/${path.replace(/^\//, "")}`) +
     qs(params);
@@ -79,20 +88,22 @@ async function req(method, path, { params, body, _retried } = {}) {
         "X-Api-Client-Key": CLIENT_KEY,
       },
       body: body ? JSON.stringify(body) : undefined,
-    }, method === "GET" ? API_TIMEOUT : API_TIMEOUT * 2));
+    }, method === "GET" ? API_TIMEOUT : API_TIMEOUT * 2, method === "GET" ? signal : null));
   } catch (e) {
+    if (e && e.aborted) throw e;   // bên gọi tự huỷ: không phải mất mạng -> không báo chấm "mất kết nối"
     dbgLog({ t: new Date().toISOString(), method, url, status: 0, ms: Date.now() - t0, req: body || null, res: null, err: (e && e.timeout ? "Timeout: " : "Network: ") + (e && e.message) });
-    apiNetEv(false);
+    if (!quiet) apiNetEv(false);
     if (e && typeof e === "object" && e.status == null) try { e.status = 0; } catch {}
     throw e;
   }
-  apiNetEv(true);
+  if (!quiet) apiNetEv(true);
 
   // access_token hết hạn -> gia hạn phiên (dùng chung 1 lượt) rồi retry 1 lần
   if (res.status === 401 && !_retried && !authPath) {
     dbgLog({ t: new Date().toISOString(), method, url, status: 401, ms: Date.now() - t0, req: body || null, res: null, err: "401 -> thử refresh token" });
     const ok = gen !== _apiSessionGen ? true : await apiRefreshSession();   // phiên đã được gia hạn sau khi request này gửi đi -> chỉ cần gửi lại
-    if (ok) return req(method, path, { params, body, _retried: true });
+    if (signal && signal.aborted) throw apiAbortErr();
+    if (ok) return req(method, path, { params, body, signal, quiet, _retried: true });
     if (ok === null) throw apiNetErr("Mất kết nối khi gia hạn phiên đăng nhập — thử lại.");
   }
   if (res.ok && /auth\/login/.test(path)) _apiAuthLost = false;
@@ -204,6 +215,11 @@ const BGL = {
   // ---------- Tìm kiếm ----------
   // Web (bản 25/10/2026) gửi {query, year} và nhận {students, teachers, orphans}; giữ thêm q cho máy chủ bản cũ
   search: (q, year) => GET("v1/search", { query: q, q, year }).then(d),
+  // Bản thô cho tab Học sinh (dò cả danh sách): thêm tham số thử (per_page / page / offset…) + huỷ được (o.signal)
+  // -> { data: {students, teachers, orphans}, meta } · meta (nếu máy chủ có phân trang) giữ nguyên để bên gọi đọc
+  searchRaw: (q, year, extra, o) =>
+    req("GET", "v1/search", { params: Object.assign({ query: q, q, year }, extra || {}), signal: o && o.signal, quiet: true })
+      .then((r) => ({ data: d(r), meta: (r && !Array.isArray(r) && r.meta) || null })),
 };
 
 window.BGL = BGL;
