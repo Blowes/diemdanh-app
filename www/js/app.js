@@ -8,6 +8,8 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => (s == null ? "" : String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])));
 // Bỏ dấu tiếng Việt để tìm kiếm không phân biệt dấu ("tu" khớp "Tú")
 const noAccent = (s) => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase().trim();
+// Che 3 số cuối SĐT khi HIỂN THỊ (0912345678 → 0912345***); tên đăng nhập không phải SĐT giữ nguyên
+const maskPhone = (s) => { s = s == null ? "" : String(s); return /^\+?\d{6,}$/.test(s) ? s.slice(0, -3) + "***" : s; };
 const store = { get: (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } } };
 
 // ---------- két bảo mật cho thông tin đăng nhập ----------
@@ -451,8 +453,10 @@ const AUTH_ERR = { "Invalid username or password": "Sai số điện thoại ho�
 const trErr = (m) => AUTH_ERR[m] || m || "Đăng nhập thất bại.";
 async function bioAvailable() { const B = window.Capacitor?.Plugins?.NativeBiometric; if (!B) return false; try { const r = await B.isAvailable(); return !!(r && r.isAvailable); } catch { return false; } }
 
+let LOGIN_SAVED_U = "";   // SĐT thật của tài khoản đã lưu — ô nhập chỉ hiện bản che
 function loginScreen(msg, msgType) {
   const cred = store.get("bgl-cred", null);
+  LOGIN_SAVED_U = cred?.u || "";
   paint(`<main class="fade-in login-bg"><div class="sparkles" id="sparkles"></div>
     <div class="wrap" style="max-width:420px;margin:0 auto;padding-top:6vh;position:relative;z-index:2">
     <div style="text-align:center;margin-bottom:22px">
@@ -463,7 +467,7 @@ function loginScreen(msg, msgType) {
     </div>
     <div class="login-card">
     <div class="field" style="margin-bottom:14px"><label>Số điện thoại</label>
-      <input id="u" class="input num" inputmode="tel" autocomplete="username" placeholder="0867007***" value="${esc(cred?.u || "")}"/></div>
+      <input id="u" class="input num" inputmode="tel" autocomplete="username" placeholder="0867007***" value="${esc(maskPhone(LOGIN_SAVED_U))}"/></div>
     <div class="field"><label>Mật khẩu</label>
       <input id="p" class="input" type="password" autocomplete="current-password" placeholder="••••••" value="${esc(cred?.p || "")}"/></div>
     <label class="check"><input type="checkbox" id="remember" ${cred ? "checked" : ""}/><span class="box">${ic("check", 14)}</span><span>Lưu tài khoản trên máy này</span></label>
@@ -476,12 +480,14 @@ function loginScreen(msg, msgType) {
   if (effectsOn()) makeSparkles($("sparkles"));
   if (msg) showAuth(msg, msgType);
   $("loginBtn").onclick = () => doLogin();
+  $("u").addEventListener("focus", (e) => { if (LOGIN_SAVED_U && e.target.value === maskPhone(LOGIN_SAVED_U)) setTimeout(() => e.target.select(), 0); });   // gõ số khác thì thay luôn bản che
   $("p").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
   if (cred) bioAvailable().then((ok) => { const b = $("bioBtn"); if (ok && b) b.hidden = false; });
 }
 function showAuth(msg, type) { const a = $("authmsg"); if (!a) return; a.className = "authmsg " + (type === "ok" ? "ok" : "err"); a.innerHTML = (type === "ok" ? ic("check", 16) : "") + " " + esc(msg); }
-async function doLogin() {
-  const u = $("u").value.trim(), p = $("p").value, remember = $("remember")?.checked;
+async function doLogin(uSaved) {
+  let u = (uSaved || $("u").value).trim(); const p = $("p").value, remember = $("remember")?.checked;
+  if (!uSaved && LOGIN_SAVED_U && u === maskPhone(LOGIN_SAVED_U)) u = LOGIN_SAVED_U;   // ô đang hiện bản che → dùng SĐT thật đã lưu
   if (!u || !p) return showAuth("Nhập đủ số điện thoại và mật khẩu.", "err");
   const b = $("loginBtn"); b.disabled = true; b.innerHTML = `<span class="btnspin"></span> Đang đăng nhập…`;
   progStart();
@@ -498,7 +504,7 @@ async function doLogin() {
 async function bioLogin() {
   const B = window.Capacitor?.Plugins?.NativeBiometric; const cred = await loadCred();
   if (!B || !cred) return;
-  try { await B.verifyIdentity({ reason: "Đăng nhập Điểm Danh", title: "Xác thực", subtitle: "", description: "" }); $("u").value = cred.u; $("p").value = cred.p; doLogin(); }
+  try { await B.verifyIdentity({ reason: "Đăng nhập Điểm Danh", title: "Xác thực", subtitle: "", description: "" }); $("p").value = cred.p; doLogin(cred.u); }
   catch { showAuth("Xác thực sinh trắc học thất bại.", "err"); }
 }
 window.doLogin = doLogin; window.bioLogin = bioLogin;
@@ -1374,7 +1380,7 @@ function meScreen() {
     <div class="card pad press" onclick="${u.person_id ? `go('#/person/${u.person_id}')` : ""}">
       <div class="row">${avatar({ id: u.person_id, name: u.person_name }, { size: 58, fs: 20, cls: "g", tappable: true })}
         <div class="grow"><div class="disp" style="font-size:19px">${esc(u.person_name || "")}</div>
-          <div class="muted" style="font-size:13px">${esc(role)} · ${esc(u.username || "")}</div></div>
+          <div class="muted" style="font-size:13px">${esc(role)} · ${esc(maskPhone(u.username || ""))}</div></div>
         <span class="list-arrow">${ic("chev", 20)}</span></div>
     </div>
 
@@ -1596,7 +1602,7 @@ window.debugSheet = debugSheet; window.toggleDebug = toggleDebug; window.clearDe
 //  (ảnh trong localStorage, tài khoản trong Keystore, cookie, cài đặt). Cài xong APK tự xoá.
 //  iOS / web: chỉ báo có bản mới + mở trang phát hành.
 // ============================================================
-const UPDATE_REPO = "Blowes/diemdanh-app", APP_VERSION = "1.2", UPD_KEY = "bgl-update-pending";
+const UPDATE_REPO = "Blowes/diemdanh-app", APP_VERSION = "1.3", UPD_KEY = "bgl-update-pending";
 const _upd = () => window.Capacitor?.Plugins?.AppUpdate;
 // Số thay đổi điểm danh chưa Xác nhận (chỉ nằm trong bộ nhớ) — cài bản mới sẽ đóng app làm mất chúng
 const updUnsent = () => { try { return Object.values(CX).reduce((n, c) => { const A = c && c.att; return n + (A && A.loaded ? (A.saving ? Math.max(1, changeCount(A)) : changeCount(A)) : 0); }, 0); } catch { return 0; } };

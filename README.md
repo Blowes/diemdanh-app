@@ -2,7 +2,7 @@
 
 App wrap chức năng web `bglmautam.com` bằng **Capacitor** — **1 source code** build ra cả **APK** (Android) và **IPA** (iPhone). Giao diện native, gọi thẳng API `api.bglmautam.com` để bạn thêm tính năng ngay trong app, không cần deploy lại web production.
 
-- **App ID:** `com.bglmautam.app` · **Tên:** Điểm Danh · **Phiên bản:** 1.2 (versionCode 3)
+- **App ID:** `com.bglmautam.app` · **Tên:** Điểm Danh · **Phiên bản:** 1.3 (versionCode 4)
 - **Frontend:** HTML/CSS/JS thuần trong `www/` (không framework → build nhẹ, nhanh)
 - **Theme:** Sáng / Tối (hệ slate) / Theo hệ thống (đổi trong tab **Tôi**) · **màu chủ đạo theo lớp đang dạy** (khăn): Khai Tâm hồng · Rước Lễ xanh lá · Thêm Sức xanh dương · Bao Đồng vàng
 
@@ -30,6 +30,9 @@ UX kiểu app-native (bottom-nav), khác hẳn web, giữ 100% chức năng gố
    - Mặc định: **↑ Hiện Diện · ↓ Vắng Lễ · ← Có Phép · → Báo Trễ · Chạm đôi Không Phép**
    - **Tùy chỉnh** mapping trong *Tôi → Cử chỉ quẹt* (hoặc nút ⚙ khi quẹt), có Hoàn tác.
    - Quẹt xong → tự sang chế độ Cột để soát lại rồi Xác nhận.
+
+### Mới trong v1.3
+- **Che số điện thoại khi hiển thị**: màn đăng nhập (gợi ý ô nhập + tài khoản đã lưu) và thẻ hồ sơ ở tab **Tôi** chỉ hiện `0867007***`; đăng nhập vẫn dùng số thật đã lưu (bấm vào ô để gõ số khác).
 
 ### Mới trong v1.2
 - **Kiểm tra cập nhật** (Android, *Tôi → Tiện ích ứng dụng → Kiểm tra cập nhật*): đọc GitHub Releases mới nhất của repo `Blowes/diemdanh-app` → có bản mới thì hỏi cập nhật hay để sau → app tự tải APK (hiện % tải) → mở trình cài của Android để **người dùng tự bấm Cài đặt** xác nhận → giữ nguyên ảnh, tài khoản đăng nhập / vân tay, cài đặt → APK tải về **tự xoá** sau khi cập nhật. Trước khi mở trình cài, app kiểm tra APK đúng app, phiên bản mới hơn, cùng chữ ký — sai thì báo lỗi, không bao giờ bắt gỡ app. Lần đầu Android hỏi quyền *Cài ứng dụng không rõ nguồn gốc* cho Điểm Danh. Cách đăng bản mới: mục *Phát hành bản cập nhật (Android)* bên dưới.
@@ -198,7 +201,7 @@ Project đã cấu hình sẵn cho App Store, **chỉ cần máy có cert**:
 |---|---|
 | Bundle ID | `com.bglmautam.app` |
 | Tên hiển thị | Điểm Danh |
-| Phiên bản | `1.2` (build `3`) — khớp Android |
+| Phiên bản | `1.3` (build `4`) — khớp Android |
 | Thiết bị | iPhone (portrait) |
 | Ký | Automatic · Release = *Apple Distribution* |
 | Export compliance | `ITSAppUsesNonExemptEncryption = false` (chỉ dùng HTTPS → được miễn) |
