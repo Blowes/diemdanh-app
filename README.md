@@ -2,7 +2,7 @@
 
 App wrap chức năng web `bglmautam.com` bằng **Capacitor** — **1 source code** build ra cả **APK** (Android) và **IPA** (iPhone). Giao diện native, gọi thẳng API `api.bglmautam.com` để bạn thêm tính năng ngay trong app, không cần deploy lại web production.
 
-- **App ID:** `com.bglmautam.app` · **Tên:** Điểm Danh · **Phiên bản:** 1.1 (versionCode 2)
+- **App ID:** `com.bglmautam.app` · **Tên:** Điểm Danh · **Phiên bản:** 1.2 (versionCode 3)
 - **Frontend:** HTML/CSS/JS thuần trong `www/` (không framework → build nhẹ, nhanh)
 - **Theme:** Sáng / Tối (hệ slate) / Theo hệ thống (đổi trong tab **Tôi**) · **màu chủ đạo theo lớp đang dạy** (khăn): Khai Tâm hồng · Rước Lễ xanh lá · Thêm Sức xanh dương · Bao Đồng vàng
 
@@ -18,7 +18,7 @@ UX kiểu app-native (bottom-nav), khác hẳn web, giữ 100% chức năng gố
   - *Điểm danh*: **2 chế độ** (xem mục dưới)
   - *Giáo lý viên*: danh sách GLV của lớp
 - **Giáo lý viên**: toàn bộ GLV trong năm (lọc theo tên) → hồ sơ + hành trình
-- **Tôi**: hồ sơ, cấu hình cử chỉ quẹt, đổi theme (Sáng/Tối/Hệ thống), đổi thông tin đăng nhập, đăng xuất
+- **Tôi**: hồ sơ, cấu hình cử chỉ quẹt, đổi theme (Sáng/Tối/Hệ thống), đổi thông tin đăng nhập, đăng xuất, Tiện ích (sao lưu / nhập dữ liệu, chuỗi học, kiểm tra cập nhật)
 - **Tìm kiếm** người theo tên
 - **Số điện thoại** bấm ra Gọi / SMS / Zalo
 - **Sửa kết quả học** của thiếu nhi (bấm nhãn trạng thái)
@@ -31,6 +31,9 @@ UX kiểu app-native (bottom-nav), khác hẳn web, giữ 100% chức năng gố
    - **Tùy chỉnh** mapping trong *Tôi → Cử chỉ quẹt* (hoặc nút ⚙ khi quẹt), có Hoàn tác.
    - Quẹt xong → tự sang chế độ Cột để soát lại rồi Xác nhận.
 
+### Mới trong v1.2
+- **Kiểm tra cập nhật** (Android, *Tôi → Tiện ích ứng dụng → Kiểm tra cập nhật*): đọc GitHub Releases mới nhất của repo `Blowes/diemdanh-app` → có bản mới thì hỏi cập nhật hay để sau → app tự tải APK (hiện % tải) → mở trình cài của Android để **người dùng tự bấm Cài đặt** xác nhận → giữ nguyên ảnh, tài khoản đăng nhập / vân tay, cài đặt → APK tải về **tự xoá** sau khi cập nhật. Trước khi mở trình cài, app kiểm tra APK đúng app, phiên bản mới hơn, cùng chữ ký — sai thì báo lỗi, không bao giờ bắt gỡ app. Lần đầu Android hỏi quyền *Cài ứng dụng không rõ nguồn gốc* cho Điểm Danh. Cách đăng bản mới: mục *Phát hành bản cập nhật (Android)* bên dưới.
+
 ### Mới trong v1.1
 - **Logo & tên app**: icon launcher / splash Android dùng logo giáo xứ, tên hiển thị **Điểm Danh**, màn khởi động có logo.
 - **Niên khóa theo lớp**: mở lớp năm cũ từ *Hành trình* hiện đúng niên khóa của lớp (không còn hiện năm hiện tại); lịch Chúa Nhật cũng theo năm đó.
@@ -40,6 +43,18 @@ UX kiểu app-native (bottom-nav), khác hẳn web, giữ 100% chức năng gố
 - **Nền chính** là ảnh rừng thông hoàng hôn (`www/assets/bg-login.jpg`) cố định sau toàn app, phủ mờ theo theme sáng/tối và nhuộm theo màu lớp; appbar/nav kính mờ.
 - **Font nhúng sẵn** (`www/assets/fonts`, Be Vietnam Pro + Bricolage Grotesque, latin + vietnamese) — không phụ thuộc mạng, không lỗi font khi offline.
 - **Thông báo trong app** (chuông góc phải, badge số chưa đọc): lưu điểm danh thành công / lỗi, đạt mốc chuỗi (3, 5, 10, 15…), mất chuỗi; bấm nhảy tới đúng lớp / thiếu nhi; *Xoá tất cả*. Lưu trên máy theo tài khoản.
+
+### Giao diện "Liquid Glass" (kiểu iOS 26/27)
+- **Thanh tab nổi** dạng viên kính, bong bóng trượt theo tab đang mở; **kéo ngang** trên thanh để chuyển tab; bấm lại tab đang mở → cuộn lên đầu.
+- **Thanh trên**: nút kính tròn (quay lại / chuông / tìm kiếm), **tiêu đề lớn** trong nội dung, tiêu đề nhỏ + mép mờ chỉ hiện khi cuộn.
+- **Segmented** (tab lớp, Cá nhân/Hành trình, Quẹt/Cột, giao diện) có bong bóng trượt; **sheet nổi** bo theo góc máy, nút ✕, **vuốt mép trên xuống để đóng**.
+- Thẻ, nút, ô tìm kiếm, chip đều bo tròn kiểu bong bóng; avatar tròn; biểu tượng lớp là viên kẹo màu khăn.
+- iOS và chế độ *Tắt hiệu ứng* dùng kính đặc (không blur) để cuộn mượt.
+
+### Sửa lỗi
+- **Nhập dữ liệu từ file .zip**: *Nhập dữ liệu* và *Nhập dữ liệu chuỗi* nhận thẳng file `.zip` (file sao lưu gửi qua Zalo/Drive hay bị nén) — tự lấy mọi file `.json` bên trong (kể cả trong thư mục con, bỏ rác `__MACOSX`), không cần giải nén tay. Giải nén bằng `DecompressionStream`, WebView cũ dùng bộ inflate JS trong `www/js/unzip.js`. *Nhập dữ liệu chuỗi* cũng đọc được phần chuỗi học trong file sao lưu đầy đủ.
+- **403 Forbidden khi mở hồ sơ GLV khác**: API `GET v1/people/:id` chỉ cho xem khi `can_view_profile = true`. App không gọi API khi biết trước bị chặn, hiện **hồ sơ rút gọn** từ dữ liệu danh sách GLV (SĐT, email, ngày sinh, hành trình năm nay). Lớp không được xem chi tiết (403) hiện thông tin chung thay vì lỗi.
+- Mở app không còn render 2 lần (mỗi API gọi 2 lần) khi chuyển vào lớp mình dạy.
 
 ## 2. Thêm tính năng mới
 
@@ -60,6 +75,24 @@ Payload đã dò sẵn, thêm nhanh khi cần:
 | Đổi kết quả học | `PUT v1/enrollments/{id} {enrollment:{result}}` *(đã có trong app)* |
 
 Chỉ admin/super-admin: `dashboard/*`, `teacher-attendances`, `custom_export` (PDF/Excel) — tài khoản GLV bị 403.
+
+### Endpoint web có mà app chưa dùng (dò từ bundle web `main.2f7e3f67.js`, cập nhật 25/10/2026)
+
+| Chức năng | Endpoint |
+|---|---|
+| **Tìm kiếm (ĐÃ ĐỔI)** | `GET v1/search?query=&year=` → `{students[], teachers[], orphans[]}` (người kèm `enrollment{result,classroom}` / `teaching_assignment{position,classroom}`), tối thiểu 2 ký tự — *app đã chuyển sang cách này* |
+| Tổng quan lớp | `GET v1/classrooms/{id}/overview_card` · `GET v1/classrooms/overview?year=` |
+| GLV của lớp | `GET v1/classrooms/{id}/teaching_assignments` |
+| **Điểm danh GLV** | `GET v1/attendances?filters[attendable_type_eq]=TeachingAssignment&filters[date_eq]=` (tạo/sửa như điểm danh thiếu nhi với `attendable_type: "TeachingAssignment"`) |
+| Chuyển lớp thiếu nhi | `PUT v1/enrollments/{id}/transfer {classroom_id}` |
+| Anh chị em | `GET v1/people/{id}/siblings` |
+| Gộp hồ sơ trùng | `GET v1/people?q=&exclude_id=` · `POST v1/people/{id}/merge {duplicate_id}` |
+| Xuất file theo lớp | `GET v1/classrooms/{id}/students_pdf · students_xlsx · personal_details_pdf · posting_list_pdf · teachers_contact_pdf` · `classroom_custom_export` |
+| Xuất file cả năm | `GET v1/students/pdf|xlsx?year=` · `v1/teachers/pdf|xlsx?year=` · `v1/classrooms/statistics_pdf?year=` |
+| Tài khoản của mình | `PUT v1/auth/me {user}` · `GET v1/users?filters[person_id_eq]=` |
+| Quản trị (admin) | `v1/academic_years` (CRUD, `/{id}/mark_current`, `locked`) · `v1/data_schemas` (+`/options`) · `v1/resource_types` CRUD · `v1/dashboard/{summary,attendance_by_week,enrollment_trends,new_students,orphan_people}` |
+
+Test nhanh mọi endpoint GET (chỉ đọc, tự nhập mật khẩu, không in dữ liệu cá nhân): `python3 scripts/api_smoketest.py`
 
 ## 3. Backend API (đã khảo sát & test thật)
 
@@ -89,7 +122,7 @@ GET   v1/teaching_assignments?filters[person_id_eq]=            # hành trình
 GET   v1/people/{id}
 PUT   v1/users/{id}             {user:{username, password, password_confirmation}}
 GET   v1/resource_types/attendance_status | enrollment_result | teaching_assignment_position
-GET   v1/search?q=
+GET   v1/search?query=&year=   # trước đây ?q= ; giờ trả {students, teachers, orphans}
 ```
 
 Trạng thái điểm danh: `Hiện Diện, Vắng Lễ, Có Phép, Báo Trễ, Không Phép, Nghỉ Luôn`
@@ -124,6 +157,30 @@ cd android
 Khoá ký nằm ở `android/keystore/diemdanh.jks` + mật khẩu trong `android/keystore.properties` (**không commit**, hãy sao lưu 2 file này — mất khoá là không cập nhật được app đã cài). Có 2 file đó thì `./gradlew assembleRelease` ra bản đã ký `app/build/outputs/apk/release/app-release.apk`; thiếu thì ra bản unsigned (không cài được).
 Bản release ký khác bản debug → cài lần đầu phải **gỡ bản debug** trước (mất ảnh/cài đặt lưu trên máy → Sao lưu ở Tôi → Tiện ích rồi Nhập lại).
 
+### Phát hành bản cập nhật (Android)
+App gọi `GET https://api.github.com/repos/Blowes/diemdanh-app/releases/latest` **không token** → repo phải để **Public**. Tag `v<versionName>` (vd `v1.3`) được so với bản đang cài; app tải asset `.apk` đầu tiên (ưu tiên tên có `DiemDanh`).
+
+**Quy trình:**
+1. Sửa `android/app/build.gradle`: `versionCode` **+1** và `versionName` mới (vd `1.2` → `1.3`). iOS sửa `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` trong `ios/App/App.xcodeproj/project.pbxproj` cho khớp.
+2. Commit & push lên GitHub. Lần đầu (repo `Blowes/diemdanh-app` còn trống, máy chưa có remote): `git remote add origin https://github.com/Blowes/diemdanh-app.git && git push -u origin <nhánh>` — repo trống thì GitHub không tạo được tag/release (`--check` sẽ báo lỗi). Tag `v<ver>` gắn vào commit HEAD đã push (chưa push thì gắn vào nhánh mặc định).
+3. Chạy script (cần `android/keystore.properties` + `android/keystore/diemdanh.jks`):
+   ```bash
+   scripts/release-android.sh --check                         # kiểm tra trước, không build
+   scripts/release-android.sh notes.md                        # build → dist/DiemDanh-v<ver>.apk + in các bước đăng tay
+   GITHUB_TOKEN=github_pat_xxx scripts/release-android.sh notes.md   # build + tự tạo release, đính kèm APK
+   ```
+   `notes.md` (tuỳ chọn) = ghi chú bản cập nhật (Markdown). Script: `cap sync android` → `assembleRelease` → `apksigner` xác nhận ký đúng khoá release (SHA-256 `7d7e772c…103072`, chặn khoá debug / khoá lạ) → `aapt2` xác nhận package + versionCode/versionName khớp `build.gradle` → in dung lượng + SHA-256 → (có token) tạo bản nháp, tải APK lên rồi mới *Publish* làm **latest**. Dừng nếu tag/release đã có hoặc phiên bản không mới hơn bản đang phát hành; cảnh báo nếu còn code chưa commit/push.
+   `GITHUB_TOKEN` = *fine-grained token* chỉ chọn repo `Blowes/diemdanh-app`, quyền **Contents: Read and write** (script không in token). Không có token → đăng tay: *Releases → Draft a new release* → tag `v<ver>` → tiêu đề `Điểm Danh v<ver>` → dán `dist/DiemDanh-v<ver>-notes.md` → đính kèm `dist/DiemDanh-v<ver>.apk` → **Publish release**.
+
+**Quy tắc** (sai là người dùng không cập nhật được hoặc mất dữ liệu):
+- Luôn ký bằng `android/keystore/diemdanh.jks`. **Không bao giờ** đăng APK debug — kể cả APK từ GitHub Actions.
+- `versionCode` luôn tăng; tag = `v<versionName>`; asset là file `.apk` (giữ tên `DiemDanh-v<ver>.apk`).
+- Publish làm **latest** — không *pre-release*, không để *draft* (app chỉ đọc `releases/latest`).
+
+**Giữ dữ liệu:** cùng App ID `com.bglmautam.app` + cùng khoá ký + versionCode cao hơn ⇒ Android cài đè, giữ nguyên ảnh (localStorage của WebView), tài khoản đăng nhập / vân tay (Keystore), cookie, cài đặt. Máy đang cài **bản debug** không cập nhật đè được: *Tôi → Tiện ích → Sao lưu* → gỡ app → cài bản release → *Nhập dữ liệu* (chỉ một lần, sau đó cập nhật trong app). APK tải về nằm trong thư mục riêng của app, tự xoá ngay khi cập nhật xong (kể cả khi chưa mở app); tải lỗi / huỷ cũng xoá file dở.
+
+> **CH Play:** quyền `REQUEST_INSTALL_PACKAGES` (tự cài APK) bị Google Play hạn chế, không được dùng nếu không có lý do hợp lệ theo chính sách. Bản lên CH Play phải bỏ tính năng này (xoá quyền trong `AndroidManifest.xml` + plugin `AppUpdate`, ẩn *Kiểm tra cập nhật*) — CH Play tự cập nhật app.
+
 ### iOS → IPA
 Cần Mac có Xcode:
 ```bash
@@ -133,8 +190,40 @@ npx cap open ios          # mở Xcode -> chọn team ký -> Product > Archive -
 - Cài lên **iPhone thật** cần ký bằng tài khoản Apple (Developer 99$/năm, hoặc Apple ID free chỉ trụ 7 ngày).
 - Bản **Simulator** (`.app`) không cần ký.
 
+### iOS → App Store (bản phát hành)
+
+Project đã cấu hình sẵn cho App Store, **chỉ cần máy có cert**:
+
+| Thiết lập | Giá trị |
+|---|---|
+| Bundle ID | `com.bglmautam.app` |
+| Tên hiển thị | Điểm Danh |
+| Phiên bản | `1.2` (build `3`) — khớp Android |
+| Thiết bị | iPhone (portrait) |
+| Ký | Automatic · Release = *Apple Distribution* |
+| Export compliance | `ITSAppUsesNonExemptEncryption = false` (chỉ dùng HTTPS → được miễn) |
+| Privacy manifest | `ios/App/App/PrivacyInfo.xcprivacy` |
+
+**Trên máy có cert:**
+```bash
+npm install
+npx cap sync ios
+cd ios/App && pod install
+npx cap open ios
+```
+Trong Xcode: target **App** → *Signing & Capabilities* → chọn **Team** (Bundle ID phải trùng App ID đã tạo trên developer portal) → *Product ▸ Archive* → *Distribute App ▸ App Store Connect*.
+
+**Cần chuẩn bị trên App Store Connect** (không nằm trong source, nhưng thiếu là bị từ chối):
+1. **Tài khoản demo** cho reviewer — app bắt buộc đăng nhập, không có tài khoản thử thì reviewer reject ngay (Guideline 2.1). Điền ở *App Review Information*.
+2. **URL chính sách bảo mật** — bắt buộc. App xử lý dữ liệu cá nhân **trẻ em** (tên, kết quả học, ảnh), nên chính sách phải nói rõ: ảnh chỉ lưu trên máy, dữ liệu điểm danh gửi về `api.bglmautam.com`, ai truy cập được.
+3. **Nhãn quyền riêng tư** (App Privacy) — khai đúng: *User ID* và *Other Data*, đều **linked to user**, mục đích *App Functionality*, **không tracking**. Ảnh chụp **không** khai vì chỉ nằm trong máy (localStorage), không upload.
+4. **Ảnh chụp màn hình** iPhone 6.9" (1290×2796 hoặc 1320×2868).
+5. **Age rating** — chọn phù hợp; app dành cho giáo lý viên (người lớn), **không** đăng vào *Kids Category* (Kids Category có ràng buộc khắt khe hơn nhiều).
+
+> **Rủi ro review cần lường trước:** app là Capacitor WebView bọc `www/`. Giao diện là app thật (bottom-nav, quẹt điểm danh, chuỗi học, xuất ảnh, Face ID, lưu Thư viện ảnh) chứ không phải nhúng website, nên thường qua được Guideline 4.2 — nhưng nếu bị hỏi, trả lời nhấn mạnh các tính năng native kể trên.
+
 ### Build cả 2 trên cloud (không cần Xcode ở máy)
-Đã có sẵn `.github/workflows/build.yml`. Push code lên GitHub → tab **Actions** → chạy **Build App (APK + IPA)** → tải file ở mục **Artifacts**. Runner `macos-14` build IPA, `ubuntu` build APK.
+Đã có sẵn `.github/workflows/build.yml`. Push code lên GitHub → tab **Actions** → chạy **Build App (APK + IPA)** → tải file ở mục **Artifacts**. Runner `macos-14` build IPA, `ubuntu` build APK. APK ở đây là bản **debug** — chỉ để thử, **không** đính kèm vào Releases (xem *Phát hành bản cập nhật*).
 
 ---
 
@@ -144,10 +233,11 @@ npx cap open ios          # mở Xcode -> chọn team ký -> Product > Archive -
 bglapp/
 ├─ www/                    # frontend (source chính bạn sửa)
 │  ├─ index.html           # shell + theme CSS
-│  └─ js/{api.js, app.js}  # API client + toàn bộ màn hình
+│  └─ js/{api.js, app.js, unzip.js}  # API client + toàn bộ màn hình + đọc file .zip khi Nhập
 ├─ android/                # project Android (Capacitor tạo)
 ├─ ios/                    # project Xcode (Capacitor tạo)
 ├─ assets/                 # icon.png, splash.png nguồn
+├─ scripts/                # release-android.sh (phát hành APK cập nhật), api_smoketest.py
 ├─ capacitor.config.json
 └─ .github/workflows/build.yml
 ```

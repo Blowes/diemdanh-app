@@ -9,6 +9,33 @@ const esc = (s) => (s == null ? "" : String(s).replace(/[&<>"]/g, (c) => ({ "&":
 // Bỏ dấu tiếng Việt để tìm kiếm không phân biệt dấu ("tu" khớp "Tú")
 const noAccent = (s) => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase().trim();
 const store = { get: (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } } };
+
+// ---------- két bảo mật cho thông tin đăng nhập ----------
+// Mật khẩu KHÔNG lưu plaintext: giữ trong iOS Keychain / Android Keystore qua NativeBiometric.
+// localStorage chỉ giữ "bgl-cred" = { u } làm marker cho UI (prefill username + nút sinh trắc học).
+const CRED_SERVER = "bglmautam.com";
+if (window.Capacitor && window.Capacitor.getPlatform && window.Capacitor.getPlatform() === "ios") document.documentElement.classList.add("ios");
+const _bio = () => window.Capacitor?.Plugins?.NativeBiometric;
+const isNative = () => !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+async function saveCred(u, p) {
+  store.set("bgl-cred", { u });
+  const B = _bio();
+  if (B) { try { await B.setCredentials({ username: u, password: p, server: CRED_SERVER }); try { localStorage.removeItem("bgl-cred-fb"); } catch {} return; } catch {} }
+  // Trên app native: Keychain/Keystore lỗi thì THÔI, không hạ cấp xuống localStorage plaintext.
+  if (isNative()) { try { localStorage.removeItem("bgl-cred-fb"); } catch {} return; }
+  store.set("bgl-cred-fb", { u, p });
+}
+async function loadCred() {
+  const B = _bio();
+  if (B) { try { const c = await B.getCredentials({ server: CRED_SERVER }); if (c && c.username) return { u: c.username, p: c.password }; } catch {} }
+  return store.get("bgl-cred-fb", null);
+}
+async function clearCred() {
+  try { localStorage.removeItem("bgl-cred"); } catch {}
+  try { localStorage.removeItem("bgl-cred-fb"); } catch {}
+  const B = _bio();
+  if (B) { try { await B.deleteCredentials({ server: CRED_SERVER }); } catch {} }
+}
 const QUOTA_MSG = "Bộ nhớ máy đầy — không lưu được. Xoá bớt ảnh thiếu nhi trong Tôi → Tiện ích → Xoá dữ liệu.";
 
 // ---------- trạng thái điểm danh ----------
@@ -50,13 +77,13 @@ const AV_NAMES = {};
 function avatar(p, o = {}) {
   const id = p && p.id, ph = id ? photoOf(id) : "";
   if (id) AV_NAMES[id] = p.name || p.full_name || ("Học sinh #" + id);
-  const size = o.size || 46, r = o.r || 14, fs = o.fs || 16;
+  const size = o.size || 46, fs = o.fs || 16;
   const tap = o.tappable && id ? `onclick="event.stopPropagation();pickPhoto(${id})"` : "";
   const hue = id ? hueOf(p.name || p.full_name || String(id)) : "#888";
   const bg = ph ? `background-image:url('${ph}');background-size:cover;background-position:center;color:transparent;border-color:transparent` : `background:linear-gradient(150deg,${hue}2e,${hue}14);color:${hue};border-color:${hue}3a`;
   const b = Math.round(size * 0.4);
   const badge = (o.tappable && !ph) ? `<span style="position:absolute;right:-2px;bottom:-2px;background:var(--brand);color:#fff;width:${b}px;height:${b}px;border-radius:50%;display:grid;place-items:center;border:2px solid var(--surface)">${ic("cam", Math.round(b * 0.6))}</span>` : "";
-  return `<div class="ava ${o.cls || ""}" style="width:${size}px;height:${size}px;border-radius:${r}px;font-size:${fs}px;position:relative;overflow:visible;${bg}" ${tap}><span style="position:absolute;inset:0;display:grid;place-items:center;border-radius:inherit;overflow:hidden;${bg}">${ph ? "" : esc(initials(p.name || p.full_name))}</span>${badge}</div>`;
+  return `<div class="ava ${o.cls || ""}" style="width:${size}px;height:${size}px;border-radius:50%;font-size:${fs}px;position:relative;overflow:visible;${bg}" ${tap}><span style="position:absolute;inset:0;display:grid;place-items:center;border-radius:inherit;overflow:hidden;${bg}">${ph ? "" : esc(initials(p.name || p.full_name))}</span>${badge}</div>`;
 }
 async function pickPhoto(personId) {
   const Cam = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Camera;
@@ -162,6 +189,11 @@ window.toggleEffects = toggleEffects; window.perfSheet = perfSheet;
 
 // ---------- icons ----------
 const IC = {
+  x: '<path d="M6 6l12 12M18 6 6 18"/>',
+  pin: '<path d="M12 21s-7-6.3-7-11a7 7 0 0 1 14 0c0 4.7-7 11-7 11z"/><circle cx="12" cy="10" r="2.6"/>',
+  cake: '<path d="M4 21h16"/><path d="M5 21v-7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v7"/><path d="M4 15.6c1.6 0 1.6 1.2 3.2 1.2s1.6-1.2 3.2-1.2 1.6 1.2 3.2 1.2 1.6-1.2 3.2-1.2 1.6 1.2 3.2 1.2"/><path d="M12 8V5"/>',
+  warn: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h16.9a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  frown: '<circle cx="12" cy="12" r="10"/><path d="M8 15.5c1-1.3 2.4-2 4-2s3 .7 4 2"/><path d="M9 9.5h.01"/><path d="M15 9.5h.01"/>',
   home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>',
   book: '<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M6 3v16"/>',
   users: '<circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 5.5a3 3 0 0 1 0 5.8"/><path d="M17.5 14.5A5.5 5.5 0 0 1 21 20"/>',
@@ -196,6 +228,7 @@ const IC = {
   share: '<path d="M12 3v12M7.5 7.5 12 3l4.5 4.5"/><path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>',
   fire: '<path d="M12 22c4.4 0 7-2.8 7-6.6 0-3-1.7-5.2-3.4-7.1-.3 1.6-1.2 2.6-2.3 3.2.3-3.6-1.2-6.6-4.3-8.5.2 3.1-1.3 4.7-2.9 6.4C4.7 10.9 5 12.5 5 15.4 5 19.2 7.6 22 12 22z"/>',
   sparkle: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/>',
+  refresh: '<path d="M20 11.5A8 8 0 0 0 6.2 6.4L4 8.5"/><path d="M4 3.5v5h5"/><path d="M4 12.5a8 8 0 0 0 13.8 5.1l2.2-2.1"/><path d="M20 20.5v-5h-5"/>',
 };
 const ic = (n, w = 24) => `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${IC[n] || ""}</svg>`;
 
@@ -212,30 +245,44 @@ function phoneSheet(num, who) {
   const n = String(num).replace(/\s/g, "");
   openSheet(`<h3>${esc(who || "Liên hệ")} · ${esc(n)}</h3>
     <div class="pickgrid">
-      <button class="pickbtn" onclick="closeSheet();openExternal('tel:${n}')"><span style="color:var(--present-t)">${ic("phone",20)}</span> Gọi điện</button>
-      <button class="pickbtn" onclick="closeSheet();openExternal('sms:${n}')"><span style="color:var(--excused-t)">${ic("chat",20)}</span> Nhắn tin</button>
+      <button class="pickbtn" onclick="closeSheet();openExternal('tel:${n}')"><span style="color:var(--present-t);display:inline-flex;align-items:center">${ic("phone",20)}</span> Gọi điện</button>
+      <button class="pickbtn" onclick="closeSheet();openExternal('sms:${n}')"><span style="color:var(--excused-t);display:inline-flex;align-items:center">${ic("chat",20)}</span> Nhắn tin</button>
       <button class="pickbtn clear" style="color:var(--brand-2)" onclick="closeSheet();openExternal('https://zalo.me/${zaloNum(n)}')">Mở Zalo</button>
     </div>`);
 }
 function phoneChip(num, who) { if (!num || num === "—" || num === "-") return `<b>—</b>`; const n = esc(String(num)); return `<b class="phone" onclick="event.stopPropagation();phoneSheet('${esc(num)}','${esc(who || "")}')">${n}</b>`; }
 window.openExternal = openExternal; window.phoneSheet = phoneSheet;
 
-// ---------- chrome ----------
+// ---------- chrome (kiểu Liquid Glass) ----------
+// Thanh trên: nút kính tròn (quay lại) · tiêu đề nhỏ hiện khi cuộn · cụm nút kính (chuông, tìm kiếm…)
+// Tiêu đề LỚN nằm ngay dưới, cuộn theo nội dung.
 function appbar({ title, sub, back, action, bell } = {}) {
-  return `<div class="appbar"><div class="appbar-in">
-    ${back ? `<button class="back" onclick="${typeof back === "string" ? `go('${back}')` : "history.back()"}">${ic("back", 20)}</button>` : ""}
-    <div style="flex:1;min-width:0">
-      <h1 style="flex:none">${esc(title || "")}</h1>
-      ${sub ? `<div class="muted trunc" style="font-size:12.5px;margin-top:1px">${esc(sub)}</div>` : ""}
-    </div>
-    ${bell ? bellBtn() : ""}
-    ${action || ""}
-  </div></div>`;
+  const backBtn = back ? `<button class="gbtn back" aria-label="Quay lại" onclick="${typeof back === "string" ? `go('${back}')` : "history.back()"}">${ic("back", 20)}</button>` : `<span class="nb-sp"></span>`;
+  const acts = (bell ? bellBtn() : "") + (action || "");
+  return `<header class="nb"><div class="nb-in">${backBtn}<div class="nt">${esc(title || "")}</div>${acts ? `<div class="gcap">${acts}</div>` : `<span class="nb-sp"></span>`}</div></header>
+    ${title ? `<div class="lt"><h1>${esc(title)}</h1>${sub ? `<div class="lt-sub">${esc(sub)}</div>` : ""}</div>` : ""}`;
 }
+// tiêu đề nhỏ + nền mờ mép trên chỉ hiện khi nội dung cuộn xuống dưới thanh
+function syncScrollEdge() { document.documentElement.classList.toggle("scrolled", (window.scrollY || 0) > 30); }
+window.addEventListener("scroll", syncScrollEdge, { passive: true });
+// Segmented control: bong bóng trượt từ vị trí lần trước sang mục đang chọn (nhớ theo nhóm)
+const SEGMEM = {};
+function seg(group, items, active, style) {
+  const from = SEGMEM[group] != null && SEGMEM[group] < items.length ? SEGMEM[group] : active; SEGMEM[group] = active;
+  return `<div class="seg thumb" data-to="${active}" style="--n:${items.length};--i:${from};${style || ""}">${items.map(([, label, onclick], n) => `<button class="${n === active ? "on" : ""}" onclick="${onclick}">${label}</button>`).join("")}</div>`;
+}
+function animateSegs(host) {
+  (host || document).querySelectorAll(".seg[data-to]").forEach((el) => {
+    const to = el.dataset.to; el.removeAttribute("data-to");
+    requestAnimationFrame(() => requestAnimationFrame(() => el.style.setProperty("--i", to)));
+  });
+}
+// Biểu tượng lớp: viên kẹo bo tròn theo màu khăn của khối lớp
+function classIcon(c) { const k = classThemeKey(c); return `<div class="cico ${k ? "t-" + k : ""}">${esc(initials((c && c.name) || ""))}</div>`; }
 // Chuông thông báo (góc phải appbar) + badge số chưa đọc
 function bellBtn() {
   const n = Notif.unread(); _bellLast = n;
-  return `<button class="act bell ${n ? "has" : ""}" onclick="notifSheet()" aria-label="Thông báo">${ic("bell", 20)}<span class="badge" id="bellBadge" ${n ? "" : "hidden"}>${n > 99 ? "99+" : n}</span></button>`;
+  return `<button class="act bell ${n ? "has" : ""}" onclick="notifSheet()" aria-label="Thông báo">${ic("bell", 21)}<span class="badge" id="bellBadge" ${n ? "" : "hidden"}>${n > 99 ? "99+" : n}</span></button>`;
 }
 let _bellLast = -1;
 function refreshBell() {
@@ -245,24 +292,100 @@ function refreshBell() {
   if (btn) { btn.classList.toggle("has", n > 0); if (_bellLast >= 0 && n > _bellLast) { btn.classList.remove("ring"); void btn.offsetWidth; btn.classList.add("ring"); setTimeout(() => btn.classList.remove("ring"), 1300); } }
   _bellLast = n;
 }
-function bottomNav(active) {
-  const items = [["home", "Trang chủ", "#/home", "home"], ["book", "Lớp học", "#/classes", "classes"], ["users", "Giáo lý viên", "#/teachers", "teachers"], ["user", "Tôi", "#/me", "me"]];
-  return `<nav class="nav">${items.map(([i, l, h, k]) => `<a class="${active === k ? "on" : ""}" onclick="go('${h}')">${ic(i)}<span>${l}</span></a>`).join("")}</nav>`;
+// ---------- thanh tab nổi: tạo 1 lần, bong bóng trượt giữa các tab, kéo ngang để chuyển ----------
+const TABS = [["home", "Trang chủ", "#/home", "home"], ["book", "Lớp học", "#/classes", "classes"], ["users", "Giáo lý viên", "#/teachers", "teachers"], ["user", "Tôi", "#/me", "me"]];
+function tabbarEl() {
+  let tb = $("tabbar"); if (tb) return tb;
+  tb = document.createElement("nav"); tb.id = "tabbar"; tb.className = "tabbar"; tb.setAttribute("role", "tablist");
+  tb.innerHTML = `<i class="tb-bubble"></i>` + TABS.map(([i, l, , k], n) => `<a role="tab" data-k="${k}" onclick="tabTo(${n})">${ic(i)}<span>${l}</span></a>`).join("");
+  document.body.appendChild(tb); bindTabDrag(tb);
+  return tb;
 }
-function paint(html, navKey) { root.innerHTML = html + (navKey !== false ? bottomNav(navKey) : ""); const m = root.querySelector("main"); if (m) m.classList.add("fade-in"); }
+// key: tab đang mở · false: ẩn (đăng nhập) · undefined: giữ nguyên vị trí (màn đang tải)
+function setTab(key) {
+  const tb = tabbarEl(); tb.hidden = key === false;
+  const n = TABS.findIndex((t) => t[3] === key); if (n < 0) return;
+  tb._key = key; tb.style.setProperty("--ti", n);
+  tb.querySelectorAll("a").forEach((a, i) => { a.classList.toggle("on", i === n); a.setAttribute("aria-selected", i === n ? "true" : "false"); });
+}
+function tabTo(n) {
+  const t = TABS[n]; if (!t) return;
+  haptic(8); setTab(t[3]);
+  if (location.hash !== t[2]) go(t[2]);
+  else if (root.dataset.hash !== t[2]) render();                     // địa chỉ đúng mà màn đang hiện lại khác -> vẽ lại
+  else window.scrollTo({ top: 0, behavior: "smooth" });              // bấm lại tab đang mở -> cuộn lên đầu
+}
+function bindTabDrag(tb) {
+  let sx = null, moved = false, left = 0, w = 0, last = -1;
+  const at = (x) => Math.max(0, Math.min(TABS.length - 1, Math.floor((x - left) / w)));
+  tb.addEventListener("pointerdown", (e) => { const r = tb.getBoundingClientRect(); left = r.left + 4; w = (r.width - 8) / TABS.length; sx = e.clientX; moved = false; last = -1; });
+  tb.addEventListener("pointermove", (e) => {
+    if (sx == null || (!moved && Math.abs(e.clientX - sx) < 10)) return;
+    if (!moved) { moved = true; tb.classList.add("drag"); try { tb.setPointerCapture(e.pointerId); } catch {} }
+    tb.style.setProperty("--dx", Math.max(0, Math.min(w * (TABS.length - 1), e.clientX - left - w / 2)) + "px");
+    const n = at(e.clientX); if (n !== last) { last = n; haptic(6); tb.querySelectorAll("a").forEach((a, i) => a.classList.toggle("on", i === n)); }
+  });
+  const end = (e, cancel) => {
+    if (sx == null) return; const was = moved; sx = null; moved = false; tb.classList.remove("drag");
+    if (!was) return;
+    tb._swallowUntil = Date.now() + 400;   // nuốt cú "click" trình duyệt bắn ra sau khi kéo
+    if (cancel) { setTab(tb._key); return; }
+    tabTo(at(e.clientX));
+  };
+  tb.addEventListener("pointerup", (e) => end(e, false));
+  tb.addEventListener("pointercancel", (e) => end(e, true));
+  tb.addEventListener("click", (e) => { if (Date.now() < (tb._swallowUntil || 0)) { e.stopPropagation(); e.preventDefault(); } }, true);
+}
+window.tabTo = tabTo;
+// ---------- chống "màn cũ vẽ đè": mỗi lần điều hướng NAV tăng 1; màn nào tải API xong mà
+// người dùng đã sang màn khác (NAV đổi) thì bỏ kết quả, không vẽ đè lên màn đang xem ----------
+let NAV = 0;
+const stale = (t) => t !== NAV;
+function paint(html, navKey) {
+  root.innerHTML = html; root.dataset.hash = location.hash; setTab(navKey);
+  const m = root.querySelector("main"); if (m) m.classList.add("fade-in");
+  animateSegs(root); syncScrollEdge();
+}
 function hideBoot() { const b = $("boot"); if (!b) return; b.classList.add("out"); setTimeout(() => b.remove(), 420); }
 setTimeout(hideBoot, 12000);  // phòng hờ: không để kẹt màn khởi động
 function screen(html, navKey) { paint(html, navKey); progDone(); hideBoot(); }
-function skelCard() { return `<div class="card pad"><div class="row"><div class="skel" style="width:46px;height:46px;border-radius:14px"></div><div class="grow"><div class="skel" style="height:11px;width:38%;margin-bottom:9px"></div><div class="skel" style="height:16px;width:66%"></div></div></div><div class="skel" style="height:58px;margin-top:14px"></div></div>`; }
+function skelCard() { return `<div class="card pad"><div class="row"><div class="skel" style="width:46px;height:46px;border-radius:50%"></div><div class="grow"><div class="skel" style="height:11px;width:38%;margin-bottom:9px"></div><div class="skel" style="height:16px;width:66%"></div></div></div><div class="skel" style="height:58px;margin-top:14px"></div></div>`; }
 function loading(navKey) { progStart(); paint(appbar({}) + `<main><div class="wrap stack">${skelCard()}${skelCard()}${skelCard()}</div></main>`, navKey); }
 function haptic(ms = 12) { if (effectsOn() && navigator.vibrate) { try { navigator.vibrate(ms); } catch {} } }
 function emptyBox(icon, msg, sub) { return `<div class="empty"><div class="big">${icon}</div><div style="font-weight:600;color:var(--ink)">${esc(msg)}</div>${sub ? `<div style="margin-top:6px">${esc(sub)}</div>` : ""}</div>`; }
-function errBox(msg) { return `<div class="empty"><div class="big">⚠️</div><div>${esc(msg)}</div><div style="margin-top:16px"><button class="btn sm ghost" onclick="render()">Thử lại</button></div></div>`; }
+const ERR_VN = { Forbidden: "Tài khoản của bạn không có quyền xem mục này.", "Not Found": "Không tìm thấy dữ liệu.", "Failed to fetch": "Không kết nối được máy chủ — kiểm tra mạng." };
+function errBox(msg) {
+  if (msg === "Forbidden") return emptyBox(ic("key", 44), ERR_VN.Forbidden, "Chỉ xem được dữ liệu của lớp / người mình được phân công.");
+  return `<div class="empty"><div class="big">${ic("warn",44)}</div><div>${esc(ERR_VN[msg] || msg)}</div><div style="margin-top:16px"><button class="btn sm ghost" onclick="render()">Thử lại</button></div></div>`;
+}
+// Lớp đã có trong danh sách lớp / phân công (dùng khi API chi tiết lớp từ chối)
+function knownClass(id) {
+  const k = String(id), hit = (c) => c && String(c.id) === k;
+  return (S._classes || []).find(hit) || ((S.myAssignments || []).map((t) => t.classroom).find(hit)) || ((S._teachers || []).map((t) => t.classroom).find(hit)) || null;
+}
 
 // ---------- sheet ----------
 let _sheetT = null;
-function openSheet(html) { clearTimeout(_sheetT); $("sheetHost").innerHTML = `<div class="sheet" id="sheet"><div class="grip"></div>${html}</div>`; requestAnimationFrame(() => { const sh = $("sheet"); if (sh) sh.classList.add("on"); $("scrim").classList.add("on"); }); }
-function closeSheet() { const s = $("sheet"); if (s) s.classList.remove("on"); $("scrim").classList.remove("on"); clearTimeout(_sheetT); _sheetT = setTimeout(() => { $("sheetHost").innerHTML = ""; }, 260); }
+// sheet._onClose: chạy 1 lần khi sheet bị đóng / bị sheet khác thay (vd. huỷ tải bản cập nhật)
+function sheetGone(s) { const f = s && s._onClose; if (!f) return; s._onClose = null; try { f(); } catch {} }
+function openSheet(html) {
+  clearTimeout(_sheetT); sheetGone($("sheet"));
+  $("sheetHost").innerHTML = `<div class="sheet" id="sheet" role="dialog" aria-modal="true"><div class="sheet-drag"></div><div class="grip"></div><button class="sheet-x" aria-label="Đóng" onclick="closeSheet()">${ic("x", 18)}</button>${html}</div>`;
+  const sh = $("sheet"); bindSheetDrag(sh);
+  requestAnimationFrame(() => { if (sh.isConnected) sh.classList.add("on"); $("scrim").classList.add("on"); animateSegs(sh); });
+}
+// Vuốt mép trên của sheet xuống để đóng (giống sheet iOS)
+function bindSheetDrag(sh) {
+  const zone = sh.querySelector(".sheet-drag"); let sy = null, dy = 0, t0 = 0;
+  zone.addEventListener("pointerdown", (e) => { if (sh.scrollTop > 0) return; sy = e.clientY; dy = 0; t0 = Date.now(); sh.style.transition = "none"; try { zone.setPointerCapture(e.pointerId); } catch {} });
+  zone.addEventListener("pointermove", (e) => { if (sy == null) return; dy = Math.max(0, e.clientY - sy); sh.style.transform = `translateY(${dy}px)`; });
+  const end = () => {
+    if (sy == null) return; sy = null; sh.style.transition = ""; sh.style.transform = "";
+    if (dy > 110 || dy / Math.max(1, Date.now() - t0) > 0.65) closeSheet();
+  };
+  zone.addEventListener("pointerup", end); zone.addEventListener("pointercancel", end);
+}
+function closeSheet() { const s = $("sheet"); if (s) { s.classList.remove("on"); s.dataset.closing = "1"; sheetGone(s); } $("scrim").classList.remove("on"); clearTimeout(_sheetT); _sheetT = setTimeout(() => { $("sheetHost").innerHTML = ""; }, 260); }
 $("scrim").addEventListener("click", closeSheet);
 window.closeSheet = closeSheet; window.go = go; window.render = render;
 
@@ -306,7 +429,7 @@ function notifSheet() {
   openSheet(`<h3 style="margin-bottom:${list.length ? 10 : 14}px">Thông báo${unread ? ` <span class="chip st-late" style="vertical-align:3px;padding:3px 8px">${unread} mới</span>` : ""}</h3>
     ${list.length ? `<div class="ntf-actions">${unread ? `<button class="btn ghost sm" onclick="Notif.readAll();notifSheet()">${ic("check", 14)} Đã đọc hết</button>` : ""}
       <button class="btn ghost sm" id="ntfClear" style="color:var(--danger)" onclick="clearNotifs()">${ic("trash", 14)} Xoá tất cả</button></div>` : ""}
-    <div class="card divlist" style="overflow:hidden;max-height:62vh;overflow-y:auto">${rows || `<div class="empty" style="padding:36px 20px"><div class="big">🔔</div><div style="font-weight:600;color:var(--ink)">Chưa có thông báo</div><div style="margin-top:6px;font-size:13.5px">Lưu điểm danh xong, đạt hoặc mất chuỗi học… sẽ báo ở đây.</div></div>`}</div>`);
+    <div class="card divlist" style="overflow:hidden;max-height:62vh;overflow-y:auto">${rows || `<div class="empty" style="padding:36px 20px"><div class="big">${ic("bell",44)}</div><div style="font-weight:600;color:var(--ink)">Chưa có thông báo</div><div style="margin-top:6px;font-size:13.5px">Lưu điểm danh xong, đạt hoặc mất chuỗi học… sẽ báo ở đây.</div></div>`}</div>`);
 }
 function clearNotifs() {
   const b = $("ntfClear");
@@ -338,6 +461,7 @@ function loginScreen(msg, msgType) {
       <h1 class="disp" style="font-size:30px;margin:6px 0 0">Chào mừng trở lại</h1>
       <p class="muted" style="margin:6px 0 0">Đăng nhập để điểm danh &amp; quản lý lớp</p>
     </div>
+    <div class="login-card">
     <div class="field" style="margin-bottom:14px"><label>Số điện thoại</label>
       <input id="u" class="input num" inputmode="tel" autocomplete="username" placeholder="0867007***" value="${esc(cred?.u || "")}"/></div>
     <div class="field"><label>Mật khẩu</label>
@@ -346,6 +470,7 @@ function loginScreen(msg, msgType) {
     <div id="authmsg"></div>
     <button class="btn" id="loginBtn" style="margin-top:18px">Đăng nhập</button>
     <button class="bio" id="bioBtn" hidden onclick="bioLogin()">${ic("finger", 20)} Đăng nhập bằng vân tay / FaceID</button>
+    </div>
   </div></main>`, false);
   progDone(); hideBoot();
   if (effectsOn()) makeSparkles($("sparkles"));
@@ -362,7 +487,7 @@ async function doLogin() {
   progStart();
   try {
     S.user = await BGL.login(u, p);
-    if (remember) store.set("bgl-cred", { u, p }); else { try { localStorage.removeItem("bgl-cred"); } catch {} }
+    if (remember) await saveCred(u, p); else await clearCred();
     b.innerHTML = `${ic("check", 18)} Thành công`; showAuth("Đăng nhập thành công", "ok");
     await boot(); progDone(); setTimeout(() => go(landingHash()), 350);
   } catch (e) {
@@ -371,14 +496,19 @@ async function doLogin() {
   }
 }
 async function bioLogin() {
-  const B = window.Capacitor?.Plugins?.NativeBiometric, cred = store.get("bgl-cred", null);
+  const B = window.Capacitor?.Plugins?.NativeBiometric; const cred = await loadCred();
   if (!B || !cred) return;
   try { await B.verifyIdentity({ reason: "Đăng nhập Điểm Danh", title: "Xác thực", subtitle: "", description: "" }); $("u").value = cred.u; $("p").value = cred.p; doLogin(); }
   catch { showAuth("Xác thực sinh trắc học thất bại.", "err"); }
 }
 window.doLogin = doLogin; window.bioLogin = bioLogin;
 
-async function doLogout() { closeSheet(); try { await BGL.logout(); } catch {} S.user = null; loginScreen(); }
+async function doLogout() {
+  closeSheet(); try { await BGL.logout(); } catch {}
+  S.user = null; S._classes = S._teachers = null; S.myAssignments = []; S.myClassId = null;   // không để dữ liệu tài khoản cũ cho người đăng nhập sau
+  for (const k in CX) delete CX[k]; for (const k in PEOPLE) delete PEOPLE[k];
+  NAV++; loginScreen();
+}
 window.doLogout = doLogout;
 
 // ============================================================
@@ -392,14 +522,14 @@ async function homeScreen() {
   const u = S.user || {};
   const role = myRole();
   const myAssign = S.myAssignments || [];
-  const hero = `<div class="hero" style="padding:16px 18px">
+  const hero = `<div class="hero" style="padding:18px 20px">
     <div class="row" style="align-items:flex-start">
       <div class="grow">
         <div class="eyebrow" style="font-size:10.5px">${esc(S.year ? S.year.long_year : "Niên khóa")}</div>
         <h2 style="font-size:21px;margin:4px 0 1px">${esc((u.person_name || "").split(" ").slice(-2).join(" ") || "Bạn")}</h2>
         <div style="opacity:.85;font-size:12.5px">${esc(u.person_christian_name || "")} · ${esc(role)}</div>
       </div>
-      <div class="ava" style="background:rgba(255,255,255,.14);border-color:transparent;color:#fff">${esc(initials(u.person_name))}</div>
+      <div class="ava" style="width:52px;height:52px;background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.3);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.45)">${esc(initials(u.person_name))}</div>
     </div>
   </div>`;
   const myBlock = myAssign.length
@@ -410,8 +540,8 @@ async function homeScreen() {
   screen(appbar({ title: "Trang chủ", bell: true, action: `<button class="act" onclick="go('#/search')">${ic("search", 20)}</button>` }) +
     `<main><div class="wrap stack">${hero}
       <div class="row" style="gap:10px">
-        <button class="btn press" onclick="go('#/classes')">${ic("book", 18)} Các lớp</button>
-        <button class="btn ghost press" onclick="go('#/teachers')">${ic("users", 18)} GLV</button>
+        <button class="btn" onclick="go('#/classes')">${ic("book", 18)} Các lớp</button>
+        <button class="btn ghost" onclick="go('#/teachers')">${ic("users", 18)} GLV</button>
       </div>
       ${myBlock}
     </div></main>`, "home");
@@ -422,14 +552,14 @@ function classRowCard(c, position, primary) {
   const active = ov["Đang Học"] || 0;
   return `<div class="card pad press" onclick="go('#/class/${c.id}')">
     <div class="row">
-      <div class="ava ${primary ? "g" : ""}">${esc(initials(c.name))}</div>
+      ${classIcon(c)}
       <div class="grow">
         <div class="disp" style="font-size:18px">${esc(c.name)}</div>
         <div class="muted" style="font-size:12.5px">${esc(c.location || "—")}${position ? ` · ${esc(position)}` : ""}</div>
       </div>
       <div style="text-align:right"><div class="disp num" style="font-size:20px;color:var(--brand-2)">${active}</div><div class="faint" style="font-size:11px">thiếu nhi</div></div>
     </div>
-    ${primary ? `<button class="btn gold sm press" style="width:100%;margin-top:12px" onclick="event.stopPropagation();go('#/class/${c.id}/diemdanh')">${ic("swipe", 17)} Điểm danh nhanh</button>` : ""}
+    ${primary ? `<button class="btn gold sm" style="width:100%;margin-top:14px" onclick="event.stopPropagation();go('#/class/${c.id}/diemdanh')">${ic("swipe", 17)} Điểm danh nhanh</button>` : ""}
   </div>`;
 }
 
@@ -437,21 +567,30 @@ function classRowCard(c, position, primary) {
 //  CLASSES
 // ============================================================
 async function classesScreen() {
-  loading("classes");
+  const t = NAV, had = !!S._classes;
+  const draw = (list) => screen(appbar({ title: "Lớp học", bell: true, action: `<button class="act" onclick="go('#/search')">${ic("search", 20)}</button>` }) +
+    `<main><div class="wrap">
+      <label class="searchbar">${ic("search", 18)}<input id="clsq" placeholder="Lọc theo tên lớp…" oninput="filterClasses(this.value)"/></label>
+      <div class="stack" id="clsList">${list.map((c) => classRowCard(c)).join("")}</div>
+    </div></main>`, "classes");
+  // đã có danh sách lần trước -> hiện ngay, tải mới ở nền
+  if (had) { draw(S._classes); progStart(); } else loading("classes");
   try {
     const list = await BGL.classrooms(S.year && S.year.year);
-    S._classes = list;
-    screen(appbar({ title: "Lớp học", bell: true, action: `<button class="act" onclick="go('#/search')">${ic("search", 20)}</button>` }) +
-      `<main><div class="wrap">
-        <input id="clsq" class="input" placeholder="Lọc theo tên lớp…" oninput="filterClasses(this.value)" style="margin:2px 0 14px"/>
-        <div class="stack" id="clsList">${list.map((c) => classRowCard(c)).join("")}</div>
-      </div></main>`, "classes");
-  } catch (e) { screen(appbar({ title: "Lớp học" }) + `<main>${errBox(e.message)}</main>`, "classes"); }
+    const changed = JSON.stringify(list) !== JSON.stringify(S._classes);
+    S._classes = list;                                   // vẫn giữ để lần sau mở tab hiện ngay
+    if (stale(t)) return;
+    if (!had) draw(list); else { progDone(); if (changed && $("clsList")) filterClasses(($("clsq") || {}).value || ""); }
+  } catch (e) {
+    if (stale(t)) return;
+    if (had) { progDone(); toast("Không tải lại được danh sách lớp: " + (ERR_VN[e.message] || e.message)); }
+    else screen(appbar({ title: "Lớp học" }) + `<main>${errBox(e.message)}</main>`, "classes");
+  }
 }
 function filterClasses(q) {
   const nq = noAccent(q);
   const list = (S._classes || []).filter((c) => noAccent(c.name).includes(nq) || noAccent(c.location).includes(nq));
-  $("clsList").innerHTML = list.length ? list.map((c) => classRowCard(c)).join("") : emptyBox("🔍", "Không có lớp khớp");
+  $("clsList").innerHTML = list.length ? list.map((c) => classRowCard(c)).join("") : emptyBox(ic("search",44), "Không có lớp khớp");
 }
 window.filterClasses = filterClasses;
 
@@ -461,20 +600,31 @@ window.filterClasses = filterClasses;
 const CX = {};
 async function classScreen(id, tab, extra) {
   tab = tab || "thieunhi";
+  const t = NAV;
   loading();
   let c;
-  try { c = (CX[id] && CX[id].info) || (CX[id] = CX[id] || {}, CX[id].info = await BGL.classroom(id)); }
-  catch (e) { screen(appbar({ title: "Lớp", back: "#/classes" }) + `<main>${errBox(e.message)}</main>`); return; }
+  try { c = (CX[id] && CX[id].info) || (CX[id] = CX[id] || {}, CX[id].info = await BGL.classroom(id)); if (stale(t)) return; }
+  catch (e) {
+    if (stale(t)) return;
+    // lớp không được xem chi tiết (403) -> dùng thông tin chung đã có trong danh sách lớp / phân công
+    const known = e.status === 403 && knownClass(id);
+    if (!known) { screen(appbar({ title: "Lớp", back: "#/classes" }) + `<main>${errBox(e.message)}</main>`); return; }
+    c = CX[id].info = known; CX[id].limited = true;
+  }
   const segs = [["thieunhi", "Thiếu nhi"], ["diemdanh", "Điểm danh"], ["glv", "Giáo lý viên"]];
   // Niên khóa hiển thị = niên khóa CỦA LỚP (lớp năm cũ trong Hành trình không còn hiện năm hiện tại)
   const yr = classYearRange(c), longYear = c.long_year || (yr && yr.long) || "";
-  const subInfo = [longYear, c.location].filter(Boolean).join(" · ");
-  const oldYear = yr && !yr.current;
-  screen(appbar({ title: c.name, sub: subInfo, back: "#/classes", bell: true }) +
+  const oldYear = yr && !yr.current, active = (c.enrollments_overview || {})["Đang Học"];
+  const pills = [
+    c.location ? `<span class="ipill">${ic("pin", 16)} ${esc(c.location)}</span>` : "",
+    active != null ? `<span class="ipill">${ic("users", 16)} ${active} đang học</span>` : "",
+    oldYear ? `<span class="ipill gold">${ic("cal", 16)} Lớp năm cũ · dữ liệu lịch sử</span>` : "",
+  ].join("");
+  screen(appbar({ title: c.name, sub: longYear ? `Niên khóa ${longYear}` : "", back: "#/classes", bell: true }) +
     `<main><div class="wrap">
-      ${oldYear ? `<div class="card pad" style="margin-bottom:14px;display:flex;align-items:center;gap:10px;padding:12px 14px;border-color:var(--gold)"><span style="color:var(--gold-2)">${ic("cal", 20)}</span><div><div class="faint" style="font-size:11.5px">Lớp năm cũ</div><div style="font-weight:600">Niên khóa ${esc(longYear)} · dữ liệu lịch sử</div></div></div>` : ""}
-      ${c.location ? `<div class="card pad" style="margin-bottom:14px;display:flex;align-items:center;gap:10px;padding:12px 14px"><span style="color:var(--gold-2)">📍</span><div><div class="faint" style="font-size:11.5px">Địa điểm học</div><div style="font-weight:600">${esc(c.location)}</div></div></div>` : ""}
-      <div class="seg" style="margin-bottom:16px">${segs.map(([k, l]) => `<button class="${tab === k ? "on" : ""}" onclick="go('#/class/${id}/${k}')">${l}</button>`).join("")}</div>
+      ${pills ? `<div class="pills">${pills}</div>` : ""}
+      ${CX[id].limited ? `<div class="note"><span class="note-ic">${ic("key", 18)}</span><div><b>Chỉ xem thông tin chung</b><div>Tài khoản của bạn không được xem chi tiết lớp này. Danh sách thiếu nhi và điểm danh chỉ mở cho GLV phụ trách lớp.</div></div></div>` : ""}
+      ${seg("class", segs.map(([k, l]) => [k, l, `go('#/class/${id}/${k}')`]), Math.max(0, segs.findIndex((s) => s[0] === tab)), "margin-bottom:16px")}
       <div id="tabBody"><div class="spin"></div></div>
     </div></main>`, "classes");
   if (tab === "thieunhi") tabStudents(id, extra);
@@ -484,20 +634,23 @@ async function classScreen(id, tab, extra) {
 
 // ---------- Tab: Thiếu nhi ----------
 async function tabStudents(id, focusEid) {
+  const t = NAV;
   try {
     const enr = CX[id].enr || (CX[id].enr = await BGL.classroomEnrollments(id));
+    if (stale(t)) return;
+    enr.forEach((e) => rememberPerson(e.person));
     const counts = {}; enr.forEach((e) => (counts[e.result] = (counts[e.result] || 0) + 1));
     const summary = `<div class="statgrid" style="margin-bottom:16px">${["Đang Học", "Nghỉ Luôn", "Lên Lớp", "Học Lại", "Chuyển Xứ"].map((k) => statTile(counts[k] || 0, k, STONE[k])).join("")}</div>`;
     const body = $("tabBody"); if (!body) return;
     body.innerHTML = summary +
-      `<input id="stuQ" class="input" placeholder="🔍 Tìm tên thiếu nhi…" oninput="filterStudents('${id}',this.value)" value="${esc(CX[id].studentQ || "")}" style="margin:2px 0 14px"/>
+      `<label class="searchbar">${ic("search", 18)}<input id="stuQ" placeholder="Tìm tên thiếu nhi…" oninput="filterStudents('${id}',this.value)" value="${esc(CX[id].studentQ || "")}"/></label>
        <div class="stack" id="stuList"></div>`;
     renderStudentList(id);
     // Chuỗi học: tải điểm danh cả năm (nền) rồi điền vào ô
     loadClassAttendance(id).then(() => paintStreaks(id));
     // Đến từ thông báo -> cuộn tới & làm nổi thẻ thiếu nhi
     if (focusEid) setTimeout(() => { const el = $("stu-" + focusEid); if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("hl"); setTimeout(() => el.classList.remove("hl"), 2500); } }, 60);
-  } catch (e) { const b = $("tabBody"); if (b) b.innerHTML = errBox(e.message); }
+  } catch (e) { if (stale(t)) return; const b = $("tabBody"); if (b) b.innerHTML = errBox(e.message); }
 }
 function renderStudentList(id) {
   const box = $("stuList"); if (!box) return;
@@ -536,7 +689,7 @@ function studentCard(e, cid) {
     </div>
     ${evalC ? `<div class="eyebrow" style="margin:14px 2px 6px">Nhận xét</div><div class="muted" style="font-size:13.5px;line-height:1.5">${esc(evalC)}</div>` : ""}
     <div class="row muted" style="margin-top:14px;font-size:12.5px;gap:16px">
-      <span class="muted">🎂 ${fmtDate(p.birth_date)}</span>
+      <span class="muted">${ic("cake",14)} ${fmtDate(p.birth_date)}</span>
       <span class="muted">Cha ${phoneChip(pd.father_phone || p.phone, p.name || p.full_name)}</span>
       <span class="muted">Mẹ ${phoneChip(pd.mother_phone, p.name || p.full_name)}</span>
     </div>
@@ -692,7 +845,7 @@ function streakSheet(cid, eid) {
   const p = enr.person || {}, name = p.name || p.full_name || "", s = computeStreak(cid, eid), C = CX[cid] || {};
   if (!s) {
     if (C.attErr && !C.attAllP) {   // tải lỗi -> báo + thử lại (không bịa "tuần nghỉ")
-      openSheet(`<h3>${esc(name)} · Chuỗi học</h3><div class="empty" style="padding:26px"><div class="big">⚠️</div><div style="font-weight:600;color:var(--ink)">Không tải được dữ liệu điểm danh</div><div style="margin-top:6px;font-size:13.5px">Kiểm tra mạng rồi thử lại.</div>
+      openSheet(`<h3>${esc(name)} · Chuỗi học</h3><div class="empty" style="padding:26px"><div class="big">${ic("warn",44)}</div><div style="font-weight:600;color:var(--ink)">Không tải được dữ liệu điểm danh</div><div style="margin-top:6px;font-size:13.5px">Kiểm tra mạng rồi thử lại.</div>
         <button class="btn sm" style="margin-top:16px" onclick="retryStreak('${cid}',${eid})">${ic("check", 16)} Thử lại</button></div>`);
       return;
     }
@@ -758,7 +911,7 @@ function streakSettingsSheet(cid, eid) {
     <button class="btn" style="margin-top:6px" onclick="saveStreakRules(${back})">${ic("check", 18)} Lưu</button>
     <button class="btn ghost" style="margin-top:10px" onclick="resetStreakRules(${back})">Khôi phục mặc định</button>
     <div class="sec-eyebrow" style="margin:18px 2px 10px"><span class="eyebrow">Dữ liệu chuỗi học</span></div>
-    <p class="muted" style="margin:0 2px 10px;font-size:12.5px;line-height:1.45">Quy tắc + tuần nghỉ / ngày bỏ qua đã đánh dấu (${streakAdjCount()} lớp). Xuất ra file để chuyển máy hoặc chia sẻ cho GLV cùng lớp, rồi Nhập ở máy kia.</p>
+    <p class="muted" style="margin:0 2px 10px;font-size:12.5px;line-height:1.45">Quy tắc + tuần nghỉ / ngày bỏ qua đã đánh dấu (${streakAdjCount()} lớp). Xuất ra file để chuyển máy hoặc chia sẻ cho GLV cùng lớp, rồi Nhập ở máy kia — nhận được file .zip cũng nhập thẳng được.</p>
     <div class="row" style="gap:10px">
       <button class="btn ghost sm" style="flex:1" onclick="exportStreakData()">${ic("upload", 16)} Xuất dữ liệu chuỗi</button>
       <button class="btn ghost sm" style="flex:1" onclick="importStreakData(${back})">${ic("download", 16)} Nhập dữ liệu chuỗi</button>
@@ -783,12 +936,48 @@ async function exportStreakData() {
   }
 }
 function importStreakData(cid, eid) {
-  const inp = document.createElement("input"); inp.type = "file"; inp.accept = "application/json,.json";
-  inp.onchange = () => {
+  pickImportFile((docs) => {
+    // file chuỗi học; không có thì lấy phần chuỗi học trong file sao lưu đầy đủ
+    const d = (docs.find((x) => x.data && x.data.type === "streak") || {}).data || backupToStreak((docs.find((x) => x.data && x.data.photos) || {}).data);
+    const n = applyStreakImport(d);
+    toast(`Đã nhập quy tắc + điều chỉnh chuỗi của ${n} lớp ✓`);
+    if (cid) { paintStreaks(cid); streakSheet(cid, eid); } else streakSettingsSheet();
+  });
+}
+// Lấy quy tắc + điều chỉnh chuỗi từ file sao lưu đầy đủ (bgl-backup-*.json)
+function backupToStreak(b) {
+  if (!b || !b.settings) return null;
+  const parse = (v) => { try { return JSON.parse(v); } catch { return null; } };
+  const adj = {};
+  Object.keys(b.settings).forEach((k) => { const m = k.match(/^bgl-streak-adj-[^-]+-(\d+)$/); if (m) { const a = parse(b.settings[k]); if (a) adj[m[1]] = a; } });
+  return { type: "streak", rules: parse(b.settings["bgl-streak"]) || {}, adj };
+}
+// ---- Chọn file để Nhập: .json hoặc .zip (tự lấy file .json bên trong, khỏi giải nén tay) ----
+const IMPORT_ACCEPT = ".json,.zip,application/json,application/zip,application/x-zip-compressed,application/octet-stream";
+function fileBytes(file) {
+  if (file.arrayBuffer) return file.arrayBuffer().then((b) => new Uint8Array(b));
+  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(new Uint8Array(r.result)); r.onerror = () => rej(new Error("không đọc được file")); r.readAsArrayBuffer(file); });
+}
+// -> [{ name, data }] ; .zip có thể chứa nhiều file .json (vd. sao lưu + chuỗi học)
+async function readImportDocs(file) {
+  const bytes = await fileBytes(file), parse = (t) => JSON.parse(String(t).replace(/^﻿/, ""));
+  if (window.Unzip && Unzip.isZip(bytes)) {
+    const files = await Unzip.jsonFiles(bytes);
+    if (!files.length) throw new Error("trong file .zip không có file .json");
+    const docs = []; files.forEach((f) => { try { docs.push({ name: f.name, data: parse(f.text) }); } catch {} });
+    if (!docs.length) throw new Error("file .json trong .zip bị lỗi");
+    return docs;
+  }
+  return [{ name: file.name, data: parse(new TextDecoder("utf-8").decode(bytes)) }];
+}
+function pickImportFile(onDocs) {
+  const inp = document.createElement("input"); inp.type = "file"; inp.accept = IMPORT_ACCEPT;
+  inp.onchange = async () => {
     const file = inp.files && inp.files[0]; if (!file) return;
-    const r = new FileReader();
-    r.onload = () => { try { const n = applyStreakImport(JSON.parse(r.result)); toast(`Đã nhập quy tắc + điều chỉnh chuỗi của ${n} lớp ✓`); if (cid) { paintStreaks(cid); streakSheet(cid, eid); } else streakSettingsSheet(); } catch (e) { toast("File không hợp lệ: " + (e.message || e), 3000); } };
-    r.readAsText(file);
+    progStart();
+    try { await onDocs(await readImportDocs(file)); }
+    catch (e) { toast("File không hợp lệ: " + (e.message || e), 3200); }
+    finally { progDone(); }
   };
   inp.click();
 }
@@ -982,12 +1171,12 @@ async function streakCardSheet(cid, eid) {
     <button class="btn ghost" style="margin-top:8px" onclick="streakSheet('${cid}',${eid})">Quay lại</button></div>`);
   let A;
   try { A = await cardAssets(cid, eid); }
-  catch (e) { const b = $("scBody"); if (b) b.innerHTML = `<div class="empty" style="padding:26px"><div class="big">⚠️</div><div>Không tạo được thẻ: ${esc(e.message || e)}</div></div>`; return; }
+  catch (e) { const b = $("scBody"); if (b) b.innerHTML = `<div class="empty" style="padding:26px"><div class="big">${ic("warn",44)}</div><div>Không tạo được thẻ: ${esc(e.message || e)}</div></div>`; return; }
   CX[cid]._card = A; CX[cid]._cardEid = eid;
   // xem trước động ngay trong app
   const cv = $("scCanvas"); if (!cv) return;
   const S = 0.5, x = cv.getContext("2d"), t0 = performance.now();
-  const loop = () => { const el = $("scCanvas"); if (!el || el !== cv) return; if (!document.hidden) { const t = ((performance.now() - t0) / 1000) % CARD_DUR; x.setTransform(S, 0, 0, S, 0, 0); paintCard(x, A, t); } requestAnimationFrame(loop); };
+  let _lp = 0; const loop = () => { const el = $("scCanvas"); if (!el || el !== cv) return; const now = performance.now(); if (!document.hidden && now - _lp >= 33) { _lp = now; const t = ((now - t0) / 1000) % CARD_DUR; x.setTransform(S, 0, 0, S, 0, 0); paintCard(x, A, t); } requestAnimationFrame(loop); };
   loop();
 }
 async function cardSave(cid, kind, btn) {
@@ -1051,11 +1240,14 @@ window.streakSettingsSheet = streakSettingsSheet; window.saveStreakRules = saveS
 
 // ---------- Tab: Giáo lý viên của lớp ----------
 async function tabTeachers(id) {
+  const t = NAV;
   try {
     let list = CX[id].teachers;
     if (!list) { const info = CX[id].info || {}; list = (info.teaching_assignments_overview && info.teaching_assignments_overview.length) ? info.teaching_assignments_overview : await BGL.teachingByClass(id); CX[id].teachers = list; }
-    $("tabBody").innerHTML = `<div class="stack">${list.map((t) => teacherCard(t)).join("") || emptyBox("🧑‍🏫", "Chưa có giáo lý viên")}</div>`;
-  } catch (e) { $("tabBody").innerHTML = errBox(e.message); }
+    if (stale(t)) return;
+    list.forEach((x) => rememberPerson(x.person));
+    const b = $("tabBody"); if (b) b.innerHTML = `<div class="stack">${list.map((x) => teacherCard(x)).join("") || emptyBox(ic("user",44), "Chưa có giáo lý viên")}</div>`;
+  } catch (e) { if (stale(t)) return; const b = $("tabBody"); if (b) b.innerHTML = errBox(e.message); }
 }
 function teacherCard(t, classroomName) {
   const p = t.person || {};
@@ -1074,44 +1266,76 @@ function teacherCard(t, classroomName) {
 //  TEACHERS (year)
 // ============================================================
 async function teachersScreen() {
-  loading("teachers");
+  const t = NAV, had = !!S._teachers;
+  const count = (list) => `${list.length} giáo lý viên · ${esc(S.year ? S.year.long_year : "")}`;
+  const draw = (list) => screen(appbar({ title: "Giáo lý viên", bell: true, action: `<button class="act" onclick="go('#/search')">${ic("search", 20)}</button>` }) +
+    `<main><div class="wrap">
+      <label class="searchbar">${ic("search", 18)}<input id="tq" placeholder="Lọc theo tên…" oninput="filterTeachers(this.value)"/></label>
+      <div class="muted" id="tCount" style="margin:0 6px 12px;font-size:13px">${count(list)}</div>
+      <div class="stack" id="tList">${list.map((x) => teacherCard(x, x.classroom && x.classroom.name)).join("")}</div>
+    </div></main>`, "teachers");
+  // đã có danh sách lần trước -> hiện ngay, tải mới ở nền (API này chậm ~2s)
+  if (had) { draw(S._teachers); progStart(); } else loading("teachers");
   try {
     const list = await BGL.teachersByYear(S.year && S.year.year);
-    S._teachers = list;
-    screen(appbar({ title: "Giáo lý viên", bell: true, action: `<button class="act" onclick="go('#/search')">${ic("search", 20)}</button>` }) +
-      `<main><div class="wrap">
-        <input id="tq" class="input" placeholder="Lọc theo tên…" oninput="filterTeachers(this.value)" style="margin:2px 0 14px"/>
-        <div class="muted" style="margin:0 2px 12px;font-size:13px">${list.length} giáo lý viên · ${esc(S.year ? S.year.long_year : "")}</div>
-        <div class="stack" id="tList">${list.map((t) => teacherCard(t, t.classroom && t.classroom.name)).join("")}</div>
-      </div></main>`, "teachers");
-  } catch (e) { screen(appbar({ title: "Giáo lý viên" }) + `<main>${errBox(e.message)}</main>`, "teachers"); }
+    const changed = JSON.stringify(list) !== JSON.stringify(S._teachers);
+    S._teachers = list; list.forEach((x) => rememberPerson(x.person));   // vẫn giữ để lần sau mở tab hiện ngay
+    if (stale(t)) return;
+    if (!had) draw(list);
+    else { progDone(); if (changed && $("tList")) { $("tCount").innerHTML = count(list); filterTeachers(($("tq") || {}).value || ""); } }
+  } catch (e) {
+    if (stale(t)) return;
+    if (had) { progDone(); toast("Không tải lại được danh sách GLV: " + (ERR_VN[e.message] || e.message)); }
+    else screen(appbar({ title: "Giáo lý viên" }) + `<main>${errBox(e.message)}</main>`, "teachers");
+  }
 }
 function filterTeachers(q) {
   const nq = noAccent(q);
   const list = (S._teachers || []).filter((t) => noAccent((t.person && t.person.full_name) || "").includes(nq));
-  $("tList").innerHTML = list.length ? list.map((t) => teacherCard(t, t.classroom && t.classroom.name)).join("") : emptyBox("🔍", "Không có kết quả");
+  $("tList").innerHTML = list.length ? list.map((t) => teacherCard(t, t.classroom && t.classroom.name)).join("") : emptyBox(ic("search",44), "Không có kết quả");
 }
 window.filterTeachers = filterTeachers;
 
 // ============================================================
 //  PERSON
 // ============================================================
+// Người đã có trong các danh sách đã tải (GLV năm, GLV lớp, thiếu nhi, tìm kiếm).
+// API /people/:id chỉ cho xem khi can_view_profile = true (GLV thường mở hồ sơ GLV khác -> 403 Forbidden),
+// nên khi bị chặn thì hiện hồ sơ rút gọn từ đây thay vì báo lỗi.
+const PEOPLE = {};
+function rememberPerson(p, extra) {
+  if (!p || p.id == null) return;
+  const k = String(p.id), clean = {};
+  Object.keys(p).forEach((f) => { if (p[f] != null) clean[f] = p[f]; });   // bản rút gọn không ghi đè trường đã có bằng null
+  PEOPLE[k] = Object.assign({}, PEOPLE[k] || {}, clean, extra || {});
+}
+const isMe = (id) => S.user && S.user.person_id != null && String(S.user.person_id) === String(id);
 async function personScreen(id, tab) {
   tab = tab || "info"; loading();
-  let p;
-  try { p = await BGL.person(id); } catch (e) { screen(appbar({ title: "Thông tin", back: true }) + `<main>${errBox(e.message)}</main>`); return; }
+  const t = NAV, known = PEOPLE[String(id)];
+  let p, limited = false;
+  if (known && known.can_view_profile === false && !isMe(id)) { p = known; limited = true; }   // biết trước sẽ bị 403 -> khỏi gọi API
+  else {
+    try { p = await BGL.person(id); if (stale(t)) return; rememberPerson(p); }
+    catch (e) {
+      if (stale(t)) return;
+      if (e.status === 403 && known) { p = known; limited = true; }
+      else {
+        screen(appbar({ title: "Thông tin", back: true }) + `<main>${e.status === 403 ? emptyBox(ic("key", 44), "Không có quyền xem hồ sơ này", "Tài khoản của bạn chỉ xem được hồ sơ của người mình được phân quyền.") : errBox(e.message)}</main>`);
+        return;
+      }
+    }
+  }
   screen(appbar({ title: p.full_name || p.name, back: true }) +
     `<main><div class="wrap">
-      <div class="card pad" style="text-align:center;margin-bottom:16px">
-        <div style="margin:0 auto 10px;width:72px">${avatar(p, { size: 72, r: 24, fs: 26, cls: "g", tappable: true })}</div>
+      <div class="card pad profile-head">
+        <div style="margin:0 auto 10px;width:76px">${avatar(p, { size: 76, fs: 26, cls: "g", tappable: true })}</div>
         <div class="faint" style="font-size:13px">${esc(p.christian_name || "")}</div>
         <div class="disp" style="font-size:22px">${esc(p.name || p.full_name)}</div>
-        <div class="muted" style="font-size:13px;margin-top:2px">${esc(p.gender || "")} · ${fmtDate(p.birth_date)}</div>
+        <div class="muted" style="font-size:13px;margin-top:2px">${[p.gender, p.birth_date ? fmtDate(p.birth_date) : ""].filter(Boolean).map(esc).join(" · ") || "&nbsp;"}</div>
       </div>
-      <div class="seg" style="margin-bottom:16px">
-        <button class="${tab === "info" ? "on" : ""}" onclick="go('#/person/${id}/info')">Cá nhân</button>
-        <button class="${tab === "journey" ? "on" : ""}" onclick="go('#/person/${id}/journey')">Hành trình</button>
-      </div>
+      ${limited ? `<div class="note"><span class="note-ic">${ic("key", 18)}</span><div><b>Hồ sơ rút gọn</b><div>Tài khoản của bạn không được xem hồ sơ đầy đủ của người này. Thông tin bên dưới lấy từ danh sách giáo lý viên.</div></div></div>` : ""}
+      ${seg("person", [["info", "Cá nhân", `go('#/person/${id}/info')`], ["journey", "Hành trình", `go('#/person/${id}/journey')`]], tab === "journey" ? 1 : 0)}
       <div id="pBody"><div class="spin"></div></div>
     </div></main>`, "teachers");
   if (tab === "journey") personJourney(id); else personInfo(p);
@@ -1126,11 +1350,16 @@ function personInfo(p) {
     <div class="card divlist">${kv("Rửa tội", fmtDate(p.date_baptism))}${kv("Rước lễ", fmtDate(p.date_communion))}${kv("Thêm sức", fmtDate(p.date_confirmation))}${kv("Bao đồng", fmtDate(p.date_declaration))}</div>`;
 }
 async function personJourney(id) {
-  try {
-    const list = await BGL.teachingByPerson(id);
-    list.sort((a, b) => ((b.classroom && b.classroom.year) || 0) - ((a.classroom && a.classroom.year) || 0));
-    $("pBody").innerHTML = `<div class="stack">${list.map((t) => { const c = t.classroom || {}; return `<div class="card pad press" onclick="go('#/class/${c.id}')"><div class="row"><div class="grow"><div class="faint" style="font-size:12px">${esc(c.long_year || "")}</div><div style="font-weight:700;font-size:16px">${esc(c.name || "")}</div><div class="muted" style="font-size:12.5px">${esc(c.location || "")}</div></div><span class="chip st-excused">${esc(t.position || "")}</span></div></div>`; }).join("") || emptyBox("🗺️", "Chưa có hành trình")}</div>`;
-  } catch (e) { $("pBody").innerHTML = errBox(e.message); }
+  const t0 = NAV; let list;
+  try { list = await BGL.teachingByPerson(id); if (stale(t0)) return; }
+  catch (e) {   // bị chặn -> dùng phân công năm nay đã có trong danh sách GLV
+    if (stale(t0)) return;
+    list = (S._teachers || []).filter((t) => t.person && String(t.person.id) === String(id));
+    if (!list.length) { const b = $("pBody"); if (b) b.innerHTML = errBox(e.message); return; }
+  }
+  list.sort((a, b) => ((b.classroom && b.classroom.year) || 0) - ((a.classroom && a.classroom.year) || 0));
+  const b = $("pBody"); if (!b) return;
+  b.innerHTML = `<div class="stack">${list.map((t) => { const c = t.classroom || {}; return `<div class="card pad press" onclick="go('#/class/${c.id}')"><div class="row">${classIcon(c)}<div class="grow"><div class="faint" style="font-size:12px">${esc(c.long_year || "")}</div><div style="font-weight:700;font-size:16px">${esc(c.name || "")}</div><div class="muted" style="font-size:12.5px">${esc(c.location || "")}</div></div><span class="chip st-excused">${esc(t.position || "")}</span></div></div>`; }).join("") || emptyBox(ic("cal", 44), "Chưa có hành trình")}</div>`;
 }
 
 // ============================================================
@@ -1140,31 +1369,28 @@ function meScreen() {
   const u = S.user || {};
   const role = myRole();
   const tm = themeMode();
+  const THEMES = [["system", "Hệ thống"], ["light", "Sáng"], ["dark", "Tối"]];
   screen(appbar({ title: "Tôi", bell: true }) + `<main><div class="wrap stack">
     <div class="card pad press" onclick="${u.person_id ? `go('#/person/${u.person_id}')` : ""}">
-      <div class="row">${avatar({ id: u.person_id, name: u.person_name }, { size: 56, r: 18, fs: 20, cls: "g", tappable: true })}
+      <div class="row">${avatar({ id: u.person_id, name: u.person_name }, { size: 58, fs: 20, cls: "g", tappable: true })}
         <div class="grow"><div class="disp" style="font-size:19px">${esc(u.person_name || "")}</div>
           <div class="muted" style="font-size:13px">${esc(role)} · ${esc(u.username || "")}</div></div>
         <span class="list-arrow">${ic("chev", 20)}</span></div>
     </div>
 
     <div class="sec-eyebrow"><span class="eyebrow">Ứng dụng</span></div>
-    <button class="card pad press" style="width:100%;text-align:left" onclick="utilsSheet()">
-      <div class="row"><span style="color:var(--brand-2)">${ic("gear", 22)}</span><div class="grow"><div style="font-weight:600">Tiện ích ứng dụng</div><div class="muted" style="font-size:12.5px">Cử chỉ quẹt · Chuỗi học · Sao lưu · Debug · Xoá dữ liệu</div></div><span class="list-arrow">${ic("chev", 20)}</span></div>
-    </button>
+    ${setRow("gear", "Tiện ích ứng dụng", "Cử chỉ quẹt · Chuỗi học · Sao lưu · Debug · Cập nhật · Xoá dữ liệu", "utilsSheet()")}
 
     <div class="sec-eyebrow"><span class="eyebrow">Giao diện</span></div>
-    <div class="seg">${[["system", "Hệ thống"], ["light", "Sáng"], ["dark", "Tối"]].map(([k, l]) => `<button class="${tm === k ? "on" : ""}" onclick="setTheme('${k}')">${l}</button>`).join("")}</div>
+    ${seg("theme", THEMES.map(([k, l]) => [k, l, `setTheme('${k}')`]), Math.max(0, THEMES.findIndex((t) => t[0] === tm)))}
 
     <div class="sec-eyebrow"><span class="eyebrow">Tài khoản</span></div>
-    <button class="card pad press" style="width:100%;text-align:left" onclick="loginInfoSheet()">
-      <div class="row"><span style="color:var(--brand-2)">${ic("key", 22)}</span><div class="grow"><div style="font-weight:600">Thông tin đăng nhập</div><div class="muted" style="font-size:12.5px">Đổi tên đăng nhập / mật khẩu</div></div><span class="list-arrow">${ic("chev", 20)}</span></div>
-    </button>
-    <button class="card pad press" style="width:100%;text-align:left;color:var(--danger)" onclick="doLogout()">
-      <div class="row">${ic("logout", 22)}<div class="grow" style="font-weight:600">Đăng xuất</div></div>
-    </button>
-    <div class="faint" style="text-align:center;font-size:11.5px;padding:8px">Điểm Danh · v1.1 · Ban Giáo Lý</div>
+    ${setRow("key", "Thông tin đăng nhập", "Đổi tên đăng nhập / mật khẩu", "loginInfoSheet()")}
+    ${setRow("logout", "Đăng xuất", "", "doLogout()", true)}
+    <div class="faint" style="text-align:center;font-size:11.5px;padding:8px">Điểm Danh · <span id="appVer">v${esc((_ver || {}).name || APP_VERSION)}</span> · Ban Giáo Lý</div>
   </div></main>`, "me");
+  // phiên bản thật lấy từ native (bất đồng bộ) -> chỉ vá chữ, không vẽ lại màn
+  if (!_ver) appVersion().then((v) => { const e = $("appVer"); if (e) e.textContent = "v" + v.name; }).catch(() => {});
 }
 function setTheme(m) { store.set("bgl-theme", m); applyTheme(m); meScreen(); }
 window.setTheme = setTheme; window.meScreen = meScreen;
@@ -1185,11 +1411,13 @@ window.gestureSheet = gestureSheet; window.saveGestures = saveGestures; window.r
 // ============================================================
 //  TIỆN ÍCH: XUẤT / NHẬP / XOÁ / DEBUG
 // ============================================================
-function utilRow(icon, title, sub, onclick, danger) {
-  return `<button class="card pad press" style="width:100%;text-align:left;margin-bottom:10px" onclick="${onclick}">
-    <div class="row"><span style="color:${danger ? "var(--danger)" : "var(--brand-2)"}">${ic(icon, 22)}</span><div class="grow"><div style="font-weight:600${danger ? ";color:var(--danger)" : ""}">${title}</div><div class="muted" style="font-size:12.5px">${sub}</div></div><span class="list-arrow">${ic("chev", 18)}</span></div>
+// Hàng cài đặt kiểu iOS: biểu tượng trong viên kẹo màu + tiêu đề + mô tả + mũi tên
+function setRow(icon, title, sub, onclick, danger, mb) {
+  return `<button class="card pad press" style="width:100%;text-align:left${mb ? ";margin-bottom:" + mb : ""}" onclick="${onclick}">
+    <div class="row"><span class="cico" style="width:38px;height:38px;border-radius:13px${danger ? ";background:linear-gradient(150deg,#f87171,#dc2626)" : ""}">${ic(icon, 19)}</span><div class="grow"><div style="font-weight:600${danger ? ";color:var(--danger)" : ""}">${title}</div>${sub ? `<div class="muted" style="font-size:12.5px">${sub}</div>` : ""}</div><span class="list-arrow">${ic("chev", 18)}</span></div>
   </button>`;
 }
+function utilRow(icon, title, sub, onclick, danger) { return setRow(icon, title, sub, onclick, danger, "10px"); }
 function utilsSheet() {
   const dbgOn = (() => { try { return localStorage.getItem("bgl-debug") === "1"; } catch { return false; } })();
   const fxOn = effectsOn();
@@ -1198,9 +1426,11 @@ function utilsSheet() {
     ${utilRow("fire", "Chuỗi học", "Quy tắc cộng / giữ / mất chuỗi · Xuất / Nhập dữ liệu chuỗi", "streakSettingsSheet()")}
     ${utilRow("gear", "Hiệu năng &amp; hiệu ứng", `Bật/tắt hiệu ứng động · <b style="color:${fxOn ? "var(--present-t)" : "var(--ink-faint)"}">${fxOn ? "ĐANG BẬT" : "ĐANG TẮT"}</b>`, "perfSheet()")}
     ${utilRow("upload", "Sao lưu &amp; xuất dữ liệu", "Xuất ảnh + cài đặt ra 1 file để lưu / chuyển máy", "exportData()")}
-    ${utilRow("download", "Nhập dữ liệu", "Khôi phục ảnh &amp; cài đặt từ file sao lưu", "importData()")}
+    ${utilRow("download", "Nhập dữ liệu", "Khôi phục ảnh &amp; cài đặt từ file sao lưu (.json hoặc .zip)", "importData()")}
     ${utilRow("bug", "Debug — log API", `Ghi endpoint · response · lỗi${dbgOn ? ' · <b style="color:var(--present-t)">ĐANG BẬT</b>' : ""}`, "debugSheet()")}
+    ${utilRow("refresh", "Kiểm tra cập nhật", `Phiên bản hiện tại <span id="updVer">${esc(verText(_ver || { name: APP_VERSION }))}</span>`, "updateSheet()")}
     ${utilRow("trash", "Xoá dữ liệu", "Ảnh, cache, tài khoản đã lưu…", "deleteSheet()", true)}`);
+  if (!_ver) appVersion().then((v) => { const e = $("updVer"); if (e) e.textContent = verText(v); }).catch(() => {});
 }
 window.utilsSheet = utilsSheet;
 function copyText(t) {
@@ -1238,32 +1468,30 @@ window.exportData = exportData;
 
 // ---- Nhập ----
 function importData() {
-  const inp = document.createElement("input"); inp.type = "file"; inp.accept = "application/json,.json";
-  inp.onchange = () => {
-    const file = inp.files && inp.files[0]; if (!file) return;
-    const r = new FileReader();
-    r.onload = () => {
-      try {
-        const d = JSON.parse(r.result);
-        if (!d || !d.photos) return toast("File sao lưu không hợp lệ");
-        let n = 0;
-        Object.keys(d.photos || {}).forEach((k) => {
-          const val = d.photos[k]; try { localStorage.setItem(k, val); } catch {}
-          const m = k.match(/-(\d+)$/); if (m && S.user) { try { localStorage.setItem(photoKey(m[1]), val); } catch {} } n++;
-        });
-        if (d.names) { try { const cur = JSON.parse(localStorage.getItem("bgl-photo-names") || "{}"); localStorage.setItem("bgl-photo-names", JSON.stringify(Object.assign(cur, d.names))); } catch {} }
-        if (d.settings) Object.keys(d.settings).forEach((k) => {
-          if (d.settings[k] == null) return;
-          try { localStorage.setItem(k, d.settings[k]); } catch {}
-          const m = k.match(/^bgl-streak-adj-[^-]+-(\d+)$/); if (m && S.user) { try { localStorage.setItem(streakAdjKey(m[1]), d.settings[k]); } catch {} }   // gán cho tài khoản đang đăng nhập
-        });
-        applyTheme(themeMode()); document.documentElement.classList.toggle("no-fx", !effectsOn());
-        closeSheet(); toast(`Đã nhập ${n} ảnh + cài đặt ✓`); render();
-      } catch (e) { toast("File không đọc được: " + e.message); }
-    };
-    r.readAsText(file);
-  };
-  inp.click();
+  pickImportFile((docs) => {
+    const backups = docs.filter((x) => x.data && x.data.photos), streaks = docs.filter((x) => x.data && x.data.type === "streak");
+    if (!backups.length && !streaks.length) return toast("File sao lưu không hợp lệ");
+    let n = 0, nc = 0;
+    backups.forEach((x) => (n += applyBackup(x.data)));
+    streaks.forEach((x) => (nc += applyStreakImport(x.data)));   // .zip có kèm file chuỗi học -> gộp luôn
+    applyTheme(themeMode()); document.documentElement.classList.toggle("no-fx", !effectsOn());
+    closeSheet(); toast(backups.length ? `Đã nhập ${n} ảnh + cài đặt ✓` : `Đã nhập điều chỉnh chuỗi của ${nc} lớp ✓`); render();
+  });
+}
+// Ghi 1 file sao lưu vào máy; trả về số ảnh đã nhập
+function applyBackup(d) {
+  let n = 0;
+  Object.keys(d.photos || {}).forEach((k) => {
+    const val = d.photos[k]; try { localStorage.setItem(k, val); } catch {}
+    const m = k.match(/-(\d+)$/); if (m && S.user) { try { localStorage.setItem(photoKey(m[1]), val); } catch {} } n++;
+  });
+  if (d.names) { try { const cur = JSON.parse(localStorage.getItem("bgl-photo-names") || "{}"); localStorage.setItem("bgl-photo-names", JSON.stringify(Object.assign(cur, d.names))); } catch {} }
+  if (d.settings) Object.keys(d.settings).forEach((k) => {
+    if (d.settings[k] == null) return;
+    try { localStorage.setItem(k, d.settings[k]); } catch {}
+    const m = k.match(/^bgl-streak-adj-[^-]+-(\d+)$/); if (m && S.user) { try { localStorage.setItem(streakAdjKey(m[1]), d.settings[k]); } catch {} }   // gán cho tài khoản đang đăng nhập
+  });
+  return n;
 }
 window.importData = importData;
 
@@ -1300,7 +1528,7 @@ function deletePhotosSheet() {
     const nm = names[pid] || AV_NAMES[pid] || ("Học sinh #" + pid);
     const ph = localStorage.getItem(k);
     return `<div class="rev-row" style="align-items:center">
-      <div class="ava" style="width:40px;height:40px;border-radius:12px;background-image:url('${ph}');background-size:cover;background-position:center;border-color:transparent"></div>
+      <div class="ava" style="width:40px;height:40px;background-image:url('${ph}');background-size:cover;background-position:center;border-color:transparent"></div>
       <div class="grow" style="font-weight:600;font-size:14px">${esc(nm)}</div>
       <button class="pick" style="color:var(--danger);border-color:var(--danger)" onclick="delOnePhoto('${k}')">${ic("trash", 15)} Xoá</button>
     </div>`;
@@ -1320,7 +1548,7 @@ function doDelete(what) {
   try {
     if (what === "photos" || what === "all") { photoKeys().forEach((k) => localStorage.removeItem(k)); localStorage.removeItem("bgl-photo-names"); }
     if (what === "cache") { /* CX là bộ nhớ tạm trong RAM */ }
-    if (what === "cred" || what === "all") localStorage.removeItem("bgl-cred");
+    if (what === "cred" || what === "all") clearCred();
     if (what === "settings" || what === "all") {
       ["bgl-gestures", "bgl-theme", "bgl-streak", "bgl-class-theme"].forEach((k) => localStorage.removeItem(k));
       const ks = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && (k.indexOf("bgl-streak-adj-") === 0 || (what === "all" && k.indexOf("bgl-notifs-") === 0))) ks.push(k); }
@@ -1361,8 +1589,274 @@ function clearDebug() { if (window.BGL_DBG) window.BGL_DBG.logs.length = 0; toas
 function copyDebug() { copyText(JSON.stringify((window.BGL_DBG && window.BGL_DBG.logs) || [], null, 2)); }
 window.debugSheet = debugSheet; window.toggleDebug = toggleDebug; window.clearDebug = clearDebug; window.copyDebug = copyDebug;
 
+// ============================================================
+//  KIỂM TRA CẬP NHẬT — GitHub Releases (repo công khai)
+//  Android: plugin native AppUpdate tải APK → kiểm tra gói / versionCode / chữ ký → mở trình cài đặt
+//  hệ thống (người dùng tự bấm Cài đặt). Cùng appId + cùng khoá ký ⇒ Android cài đè, GIỮ dữ liệu
+//  (ảnh trong localStorage, tài khoản trong Keystore, cookie, cài đặt). Cài xong APK tự xoá.
+//  iOS / web: chỉ báo có bản mới + mở trang phát hành.
+// ============================================================
+const UPDATE_REPO = "Blowes/diemdanh-app", APP_VERSION = "1.2", UPD_KEY = "bgl-update-pending";
+const _upd = () => window.Capacitor?.Plugins?.AppUpdate;
+// Số thay đổi điểm danh chưa Xác nhận (chỉ nằm trong bộ nhớ) — cài bản mới sẽ đóng app làm mất chúng
+const updUnsent = () => { try { return Object.values(CX).reduce((n, c) => { const A = c && c.att; return n + (A && A.loaded ? (A.saving ? Math.max(1, changeCount(A)) : changeCount(A)) : 0); }, 0); } catch { return 0; } };
+// ==== UPDATE HELPERS ====
+// So sánh phiên bản từng đoạn số: "1.10" > "1.9", "1.2" == "1.2.0"; bỏ "v" đầu & đuôi chữ ("-beta")
+function verParts(v) { const m = String(v == null ? "" : v).trim().replace(/^[vV]/, "").match(/^\d+(?:\.\d+)*/); return m ? m[0].split(".").map(Number) : null; }
+function cmpVer(a, b) { const x = verParts(a) || [0], y = verParts(b) || [0]; for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d > 0 ? 1 : -1; } return 0; }
+// Tag GitHub "v1.2" / "V1.2.3" / "1.2-beta" -> "1.2" (1–4 đoạn số); sai định dạng -> null
+function parseTag(tag) { const m = String(tag == null ? "" : tag).trim().match(/^[vV]?(\d+(?:\.\d+){0,3})(?:[-+][0-9A-Za-z.+-]*)?$/); return m ? m[1].split(".").map(Number).join(".") : null; }
+// File .apk đầu tiên trong assets (ưu tiên tên có "DiemDanh"), chỉ nhận link https
+function pickApk(assets) { const l = (Array.isArray(assets) ? assets : []).filter((a) => a && typeof a.name === "string" && /\.apk$/i.test(a.name) && /^https:\/\//i.test(a.browser_download_url || "") && (!a.state || a.state === "uploaded")); return l.find((a) => /diemdanh/i.test(a.name)) || l[0] || null; }
+// Ghi chú phát hành: esc() TRƯỚC rồi mới thêm thẻ (gạch đầu dòng, tiêu đề, **đậm**) -> không chèn được HTML
+function relNotes(body, max = 2000) {
+  let s = String(body == null ? "" : body).replace(/\r\n?/g, "\n").replace(/<!--[\s\S]*?-->/g, "").replace(/\n{3,}/g, "\n\n").trim(); if (!s) return "";
+  if (s.length > max) s = s.slice(0, max).replace(/\s+\S*$/, "") + " …";
+  const md = (x) => x.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  return esc(s).split("\n").map((l) => { const t = l.trim(), b = t.match(/^[-*]\s+(.*)$/), h = t.match(/^#{1,6}\s+(.*)$/); return b ? `<div style="display:flex;gap:8px"><span>•</span><span>${md(b[1])}</span></div>` : h ? `<div style="font-weight:700;margin-top:4px">${md(h[1])}</div>` : t ? `<div>${md(t)}</div>` : "<br>"; }).join("");
+}
+// ==== /UPDATE HELPERS ====
+window.__upd = { cmpVer, parseTag, pickApk, relNotes };
+
+// Phiên bản đang cài: Android -> AppUpdate.getInfo · iOS -> App.getInfo · web -> APP_VERSION
+let _ver = null;
+const verText = (v) => `v${(v && v.name) || APP_VERSION}${v && v.code ? ` (${v.code})` : ""}`;
+async function appVersion() {
+  if (_ver) return _ver;
+  const P = _upd(), A = window.Capacitor?.Plugins?.App;
+  try { if (P) { const i = await P.getInfo(); if (i && i.versionName) return (_ver = { name: String(i.versionName), code: Number(i.versionCode) || 0 }); } } catch {}
+  try { if (A && A.getInfo) { const i = await A.getInfo(); if (i && i.version) return (_ver = { name: String(i.version), code: Number(i.build) || 0 }); } } catch {}
+  return { name: APP_VERSION, code: 0 };
+}
+
+// Gọi GitHub bằng fetch THUẦN (không qua BGL api: không gửi X-Api-Client-Key / cookie app)
+async function fetchLatestRelease() {
+  if (navigator.onLine === false) throw Object.assign(new Error("offline"), { code: "OFFLINE" });
+  const ac = typeof AbortController === "function" ? new AbortController() : null; let tm;
+  const to = new Promise((_, rej) => { tm = setTimeout(() => { rej(Object.assign(new Error("timeout"), { code: "TIMEOUT" })); try { ac && ac.abort(); } catch {} }, 15000); });
+  try {
+    const res = await Promise.race([fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`, { method: "GET", credentials: "omit", cache: "no-store", headers: { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" }, signal: ac ? ac.signal : undefined }), to]);
+    if (res.status === 404) return { none: true };
+    if (res.status === 403 || res.status === 429) { const r = Number(res.headers.get("x-ratelimit-reset")) * 1000; throw Object.assign(new Error("rate"), { code: "RATE", mins: r > Date.now() ? Math.ceil((r - Date.now()) / 60000) : 0 }); }
+    if (!res.ok) throw Object.assign(new Error("HTTP " + res.status), { code: "HTTP", status: res.status });
+    const j = await Promise.race([res.json(), to]);
+    if (!j || typeof j !== "object") throw Object.assign(new Error("bad json"), { code: "HTTP", status: res.status });
+    return j;
+  } catch (e) { if (!e || !e.code) throw Object.assign(new Error((e && e.message) || "network"), { code: e && e.name === "AbortError" ? "TIMEOUT" : e instanceof SyntaxError ? "HTTP" : navigator.onLine === false ? "OFFLINE" : "NET" }); throw e; }
+  finally { clearTimeout(tm); }
+}
+
+let _updRel = null, _updFile = null, _updBusy = false, _updTok = 0, _updInstT = 0, _updResumeT = 0, _updNagAt = 0, _updDoneT = 0;
+// Bảng cập nhật đang hiện (không tính lúc đang trượt đóng)
+const updAlive = () => { const s = $("sheet"), b = $("upd"); return !!(s && b && !s.dataset.closing && s.contains(b)); };
+function updPaint(html) { if (!updAlive()) return false; $("upd").innerHTML = html; const s = $("sheet"); if (s) s.scrollTop = 0; return true; }
+const updMsg = (icon, title, sub, btns, head) => `<h3>${head || "Kiểm tra cập nhật"}</h3><div class="empty" style="padding:12px 10px 22px"><div class="big">${ic(icon, 44)}</div><div style="font-weight:600;color:var(--ink);font-size:15.5px;line-height:1.4">${title}</div>${sub ? `<div style="margin-top:8px;font-size:13.5px;line-height:1.55">${sub}</div>` : ""}</div>${btns || ""}`;
+const updBtns = (fn, label) => (fn ? `<button class="btn" onclick="${fn}">${label}</button>` : "") + `<button class="btn ghost" style="margin-top:${fn ? 10 : 0}px" onclick="closeSheet()">Đóng</button>`;
+const updNote = (icon, title, body) => `<div class="note"><span class="note-ic">${ic(icon, 18)}</span><div><b>${title}</b><div>${body}</div></div></div>`;
+
+function updateSheet() { openSheet(`<div id="upd"></div>`); updCheck(); }
+async function updCheck() {
+  const t = ++_updTok; _updRel = null;
+  updPaint(`<h3>Kiểm tra cập nhật</h3><div class="empty" style="padding:22px 10px 30px"><div class="spin" style="margin:0 auto 14px"></div>Đang kiểm tra…</div>`);
+  const cur = await appVersion(), P = _upd(), plat = (window.Capacitor?.getPlatform && window.Capacitor.getPlatform()) || "web";
+  let rel;
+  try { rel = await fetchLatestRelease(); }
+  catch (e) {
+    if (t !== _updTok) return; const c = e && e.code, retry = updBtns("updCheck()", `${ic("refresh", 18)} Thử lại`);
+    if (c === "RATE") return updPaint(updMsg("cal", "GitHub tạm giới hạn lượt kiểm tra, thử lại sau ít phút", e.mins ? `Có thể kiểm tra lại sau khoảng ${e.mins} phút.` : "", retry));
+    if (c === "OFFLINE") return updPaint(updMsg("warn", "Không có kết nối mạng", "Bật Wi-Fi / 4G rồi thử lại.", retry));
+    if (c === "TIMEOUT") return updPaint(updMsg("warn", "Kiểm tra quá lâu không phản hồi", "Mạng đang chậm — thử lại sau.", retry));
+    if (c === "HTTP") return updPaint(updMsg("warn", "Không kiểm tra được bản mới", `GitHub trả lỗi ${esc(e.status || "")} — thử lại sau.`, retry));
+    return updPaint(updMsg("warn", "Không kết nối được GitHub", "Kiểm tra mạng rồi thử lại.", retry));
+  }
+  if (t !== _updTok) return;
+  if (rel.none) return updPaint(updMsg("book", "Chưa có bản phát hành nào trên GitHub", `Bạn đang dùng ${esc(verText(cur))}.`, updBtns()));
+  const ver = parseTag(rel.tag_name);
+  if (!ver) return updPaint(updMsg("warn", "Không đọc được số phiên bản mới", `Bản phát hành có tag "${esc(rel.tag_name || "")}" không đúng dạng v1.2 — báo admin kiểm tra lại.`, updBtns()));
+  const d = rel.published_at ? new Date(rel.published_at) : null, date = d && !isNaN(d) ? fmtDate(toISO(d)) : "";
+  if (cmpVer(ver, cur.name) <= 0) return updPaint(updMsg("check", `Bạn đang dùng bản mới nhất (v${esc(cur.name)})`, `Bản mới nhất trên GitHub: v${esc(ver)}${date ? " · phát hành " + date : ""}`, updBtns()));
+  const asset = pickApk(rel.assets);
+  _updRel = { ver, asset, rel, url: /^https:\/\/github\.com\//i.test(rel.html_url || "") ? rel.html_url : `https://github.com/${UPDATE_REPO}/releases/latest` };
+  const meta = [date && "Phát hành " + date, asset && asset.size > 0 ? "APK " + fmtBytes(asset.size) : "", "Đang dùng " + esc(verText(cur))].filter(Boolean).join(" · "), notes = relNotes(rel.body);
+  const later = `<button class="btn ghost" style="margin-top:10px" onclick="closeSheet()">Để sau</button>`, page = (cls) => `<button class="btn ${cls}" onclick="updOpenPage()">Mở trang phát hành</button>`;
+  let act;
+  if (P && plat === "android") act = asset
+    ? updNote("check", "Giữ nguyên dữ liệu", "Ảnh, tài khoản đăng nhập và cài đặt được giữ nguyên. Tải xong, bạn bấm <b>Cài đặt</b> trong hộp thoại hệ thống để xác nhận.") + `<button class="btn" onclick="updStart(this)">${ic("download", 18)} Cập nhật ngay</button>` + later
+    : updNote("warn", "Chưa có file cài đặt", `Bản v${esc(ver)} trên GitHub chưa đính kèm file .apk nên chưa thể tự cập nhật. Thử lại sau ít phút hoặc báo admin.`) + page("ghost") + later;
+  else if (plat === "ios") act = updNote("sparkle", "Bản iPhone cài riêng", "Trang phát hành GitHub chỉ có file cài đặt cho Android. Trên iPhone, bản mới được cài riêng (TestFlight / admin gửi) — liên hệ admin nếu cần.") + page("") + later;
+  else act = updNote("sparkle", "Tải bản cài đặt", "Bản này không tự cập nhật được. Mở trang phát hành để tải file .apk cho điện thoại Android.") + page("") + later;
+  updPaint(`<h3>Có bản mới v${esc(ver)}</h3><div class="muted" style="margin:-8px 4px 14px;font-size:12.5px;line-height:1.5">${meta}</div>
+    ${notes ? `<div class="card pad" style="max-height:34vh;overflow:auto;font-size:13.5px;line-height:1.55;margin-bottom:12px;word-break:break-word">${notes}</div>` : ""}${act}`);
+}
+function updOpenPage() { openExternal((_updRel && _updRel.url) || `https://github.com/${UPDATE_REPO}/releases/latest`); }
+
+// Bấm "Cập nhật ngay": quyền cài -> dùng lại APK đã tải (nếu đúng bản) -> tải -> cài
+async function updStart(btn) {
+  const P = _upd(), R = _updRel; if (!P || !R || !R.asset) return;
+  if (_updBusy) return toast(UPD_ERR.BUSY[1], 2600);   // lượt tải trước (đã huỷ) chưa dừng hẳn
+  if (btn) btn.disabled = true; _updBusy = true;
+  try {
+    let info; try { info = await P.getInfo(); } catch (e) { return updFail(e); }
+    if (!updAlive()) return;
+    if (info && info.canInstall === false) return updPermSheet();
+    try { const p = await P.getPending(); if (p && p.path && cmpVer(p.versionName, R.ver) === 0 && !(R.asset.size > 0 && p.size > 0 && p.size !== R.asset.size)) return await updInstall(p); } catch {}
+    await updDownload();
+  } finally { _updBusy = false; }
+}
+async function updDownload() {
+  const P = _upd(), R = _updRel, a = R && R.asset; if (!P || !a) return;
+  if (!updPaint(`<h3>Đang tải bản v${esc(R.ver)}</h3>
+    <div class="progress" style="height:10px;margin:6px 2px 10px"><i id="updBar" style="width:0%"></i></div>
+    <div class="row" style="justify-content:space-between;margin:0 4px 14px;font-size:13px"><b id="updPct" class="num">0%</b><span id="updSz" class="muted num">0 KB${a.size > 0 ? " / " + fmtBytes(a.size) : ""}</span></div>
+    <p class="muted" style="margin:0 4px 16px;font-size:13px;line-height:1.5">Giữ app mở trong lúc tải. Đóng bảng này hoặc bấm Huỷ sẽ dừng tải.</p>
+    <button class="btn ghost" id="updCancelBtn" onclick="updCancel()">Huỷ</button>`)) return;
+  const sh = $("sheet"), cancel = () => { try { Promise.resolve(P.cancelDownload()).catch(() => {}); } catch {} };
+  sh._onClose = cancel;   // đóng sheet / vuốt xuống / nút Back -> huỷ tải
+  let h = null; try { h = await Promise.resolve(P.addListener("downloadProgress", (e) => updProg(e, a.size))); } catch {}
+  try {
+    const r = await P.download(Object.assign({ url: a.browser_download_url, fileName: a.name }, a.size > 0 ? { expectedSize: a.size } : {}));
+    sh._onClose = null;
+    if (!r || !r.path || !updAlive() || $("sheet") !== sh) { try { Promise.resolve(P.cleanup({})).catch(() => {}); } catch {} return; }   // người dùng đã đóng bảng = huỷ
+    await updInstall(r);
+  } catch (e) { sh._onClose = null; updFail(e, sh); }
+  finally { try { if (h && h.remove) Promise.resolve(h.remove()).catch(() => {}); } catch {} }
+}
+function updProg(e, size) {
+  const b = $("updBar"); if (!b || !e) return;
+  const tot = e.total > 0 ? e.total : size > 0 ? size : 0, p = e.percent >= 0 ? Math.min(100, Math.round(e.percent)) : tot ? Math.min(100, Math.floor(((e.loaded || 0) / tot) * 100)) : -1;
+  b.style.width = (p >= 0 ? p : 100) + "%"; b.style.opacity = p >= 0 ? "" : ".4";
+  const pc = $("updPct"), sz = $("updSz"); if (pc) pc.textContent = p >= 0 ? p + "%" : "Đang tải…"; if (sz) sz.textContent = fmtBytes(e.loaded || 0) + (tot ? " / " + fmtBytes(tot) : "");
+}
+function updCancel() { const b = $("updCancelBtn"); if (b) { b.disabled = true; b.textContent = "Đang huỷ…"; } const P = _upd(); try { P && Promise.resolve(P.cancelDownload()).catch(() => {}); } catch {} }
+
+// Mở trình cài đặt hệ thống — người dùng tự bấm "Cài đặt" để xác nhận
+async function updInstall(p, force) {
+  const P = _upd(); if (!P || !p || !p.path) return;
+  const n = updUnsent();   // còn điểm danh chưa Xác nhận -> cảnh báo trước (cài đặt đóng app = mất thay đổi)
+  if (n && !force) { _updFile = p; updPaint(updMsg("warn", `Còn ${n} thay đổi điểm danh chưa Xác nhận`, "Cài đặt sẽ đóng app — các thay đổi chưa Xác nhận sẽ mất. Hãy bấm <b>Xác nhận</b> ở màn Điểm danh trước, rồi vào lại Tôi → Tiện ích → Kiểm tra cập nhật.", `<button class="btn" onclick="updReinstall(true)">Vẫn cài đặt</button><button class="btn ghost" style="margin-top:10px" onclick="closeSheet()">Để sau</button>`, "Cập nhật ứng dụng")); return; }
+  if (Date.now() - _updInstT < 1500) return; _updInstT = Date.now();   // chống bấm đúp mở 2 hộp thoại
+  _updFile = p;
+  if (!updPaint(`<h3>Cài đặt bản v${esc(p.versionName || "")}</h3>
+    ${updNote("download", `Đã tải xong${p.size > 0 ? " (" + fmtBytes(p.size) + ")" : ""}`, "Bấm <b>Cài đặt</b> trong hộp thoại hệ thống để hoàn tất. Dữ liệu được giữ nguyên.")}
+    <p class="muted" style="margin:0 4px 16px;font-size:13px;line-height:1.5">Không thấy hộp thoại? Bấm <b>Cài đặt lại</b>. Cài xong, file tải về sẽ tự xoá cho nhẹ máy.</p>
+    <button class="btn" onclick="updReinstall()">${ic("refresh", 18)} Cài đặt lại</button>
+    <button class="btn ghost" style="margin-top:10px;color:var(--danger)" onclick="updDiscard()">${ic("trash", 18)} Huỷ &amp; xoá file tải về</button>`)) return;
+  store.set(UPD_KEY, { v: p.versionName, c: p.versionCode, at: new Date().toISOString() });
+  try { await P.install({ path: p.path }); }
+  catch (e) { if (e && e.code === "NOT_FOUND") { _updFile = null; try { localStorage.removeItem(UPD_KEY); } catch {} } updFail(e); }
+}
+function updReinstall(force) { if (_updFile) updInstall(_updFile, force); else updInstallPending(force); }
+// Từ lời nhắc: lấy lại APK đã tải (getPending) rồi cài
+async function updInstallPending(force) {
+  const P = _upd(); if (!P) return; let p = null;
+  try { p = await P.getPending(); } catch {}
+  if (p && p.path) return updInstall(p, force);
+  _updFile = null; try { localStorage.removeItem(UPD_KEY); } catch {}
+  updPaint(updMsg("warn", "Không tìm thấy file cập nhật", "File tải về đã bị xoá. Kiểm tra cập nhật để tải lại.", updBtns("updCheck()", `${ic("refresh", 18)} Kiểm tra cập nhật`), "Cập nhật ứng dụng"));
+}
+async function updDiscard() {
+  const P = _upd(); _updFile = null; try { localStorage.removeItem(UPD_KEY); } catch {}
+  let r = null; try { r = P && (await P.cleanup({})); } catch {}
+  closeSheet(); toast(r && r.freedBytes > 0 ? `Đã xoá file cập nhật (${fmtBytes(r.freedBytes)})` : "Đã xoá file cập nhật");
+}
+
+// Quyền "Cài ứng dụng không rõ nguồn" (Android 8+)
+function updPermSheet() {
+  updPaint(`<h3>Cho phép cài ứng dụng từ nguồn này</h3>
+    <p class="muted" style="margin:-6px 4px 14px;font-size:14px;line-height:1.5">Để tự cài bản cập nhật, Android cần bạn cho phép <b style="color:var(--ink)">Điểm Danh</b> cài ứng dụng:</p>
+    <div class="card pad" style="font-size:13.5px;line-height:1.7;margin-bottom:12px">1. Bấm <b>Mở cài đặt</b><br>2. Bật <b>Cho phép từ nguồn này</b><br>3. Quay lại app</div>
+    <p class="faint" style="margin:0 4px 14px;font-size:12px;line-height:1.5">Một số máy tự mở lại app sau khi bật quyền — khi đó vào lại Tôi → Tiện ích → Kiểm tra cập nhật.</p>
+    <button class="btn" onclick="updGrant()">${ic("settings", 18)} Mở cài đặt</button>
+    <button class="btn ghost" style="margin-top:10px" onclick="closeSheet()">Để sau</button>`);
+}
+async function updGrant() {
+  const P = _upd(); if (!P) return; let ok = false;
+  try { const r = await P.openInstallPermissionSettings(); ok = !!(r && r.canInstall); } catch {}
+  if (!ok) { try { ok = !!(await P.getInfo()).canInstall; } catch {} }
+  if (!updAlive()) return;
+  if (ok) return _updRel && _updRel.asset ? updStart() : updInstallPending();   // từ lời nhắc / APK chờ cài: chưa có _updRel
+  updPaint(updMsg("key", "Chưa được cấp quyền cài đặt", "Không thể cài bản cập nhật khi chưa bật <b>Cho phép từ nguồn này</b> cho Điểm Danh.", updBtns("updGrant()", `${ic("settings", 18)} Mở lại cài đặt`), "Cập nhật ứng dụng"));
+}
+
+// Mã lỗi native -> lời nhắn dễ hiểu
+const UPD_ERR = {
+  NO_SPACE: ["Bộ nhớ máy không đủ", "Cần trống khoảng {size} để tải bản cập nhật. Xoá bớt ứng dụng / ảnh / video trong máy rồi thử lại."],
+  NETWORK: ["Mất kết nối khi tải", "Kiểm tra Wi-Fi / 4G rồi thử lại."],
+  HTTP: ["Không tải được file cập nhật", "Máy chủ GitHub trả lỗi {code} — thử lại sau ít phút."],
+  INVALID_APK: ["File tải về bị lỗi", "File cài đặt không hợp lệ hoặc tải chưa trọn vẹn nên đã bị xoá. Hãy thử tải lại."],
+  WRONG_PACKAGE: ["File không phải ứng dụng này", "File trên trang phát hành không phải ứng dụng Điểm Danh đang cài nên đã bị chặn và xoá. Báo admin kiểm tra lại bản phát hành."],
+  NOT_NEWER: ["Không phải bản mới hơn", "File tải về có phiên bản không mới hơn bản đang cài nên đã bỏ qua và xoá. Báo admin kiểm tra lại bản phát hành."],
+  SIGNATURE_MISMATCH: ["Chữ ký ứng dụng không khớp", "File cập nhật được ký bằng khoá khác với ứng dụng đang cài nên Android sẽ không cho cài đè (file đã bị xoá).<br><b style=\"color:var(--danger)\">Đừng gỡ ứng dụng để cài lại</b> — gỡ ứng dụng sẽ mất toàn bộ ảnh, tài khoản đã lưu và cài đặt. Hãy liên hệ admin."],
+  NO_INSTALLER: ["Không mở được trình cài đặt", "Máy không có trình cài đặt ứng dụng khả dụng. Khởi động lại máy rồi thử lại."],
+  BUSY: ["Đang có lượt tải khác", "Lượt tải trước chưa dừng hẳn — chờ vài giây rồi thử lại."],
+  NOT_FOUND: ["Không tìm thấy file cập nhật", "File tải về đã bị xoá. Hãy tải lại."],
+};
+// sh: sheet đã bắt đầu lượt tải — sheet đó đã đóng / bị thay thì chỉ báo toast, không đụng sheet đang mở
+function updFail(e, sh) {
+  const code = String((e && e.code) || ""), mine = updAlive() && (!sh || $("sheet") === sh);
+  if (code === "CANCELLED") { if (mine) closeSheet(); return toast("Đã huỷ tải bản cập nhật"); }
+  const k = /^HTTP_\d+$/.test(code) ? "HTTP" : code, m = UPD_ERR[k], a = _updRel && _updRel.asset;
+  if (!mine) return toast(m ? m[0] : code === "NEED_PERMISSION" ? "Chưa được cấp quyền cài đặt" : "Cập nhật không thành công", 3000);
+  if (code === "NEED_PERMISSION") return updPermSheet();
+  const sub = m ? m[1].replace("{code}", esc(code.slice(5))).replace("{size}", a && a.size > 0 ? fmtBytes(a.size + 20971520) : "vài chục MB") : esc((e && e.message) || "Lỗi không xác định") + " — thử lại sau.";
+  const again = ["WRONG_PACKAGE", "NOT_NEWER", "SIGNATURE_MISMATCH"].includes(k) ? updBtns() : updBtns(_updRel ? "updStart()" : "updCheck()", `${ic("refresh", 18)} Thử lại`);
+  updPaint(updMsg(k === "SIGNATURE_MISMATCH" ? "key" : "warn", m ? m[0] : "Cập nhật không thành công", sub, again, "Cập nhật ứng dụng"));
+}
+
+// Quay lại app mà bản đã tải chưa cài (vd. bấm Huỷ ở trình cài đặt) -> nhắc 1 lần
+async function updOnResume() {
+  try {
+    const P = _upd(); if (!P || _updBusy) return;
+    const now = Date.now(); if (now - _updResumeT < 1500) return; _updResumeT = now;   // resume + appStateChange cùng lúc -> 1 lần
+    const pend = store.get(UPD_KEY, null); if (!pend || !(Number(pend.c) > 0)) return;
+    await new Promise((r) => setTimeout(r, 700));                                      // chờ app / plugin khác xử lý xong lúc quay lại
+    if ($("sheet") || $("fs") || updUnsent() || now - _updNagAt < 600000) return;     // đang mở bảng khác / đang điểm danh dở / vừa nhắc
+    const info = await P.getInfo();
+    if (Number(info && info.versionCode) >= Number(pend.c)) return updDone(info, pend);
+    const p = await P.getPending();
+    if (!p || !p.path) { try { localStorage.removeItem(UPD_KEY); } catch {} return; }
+    if ($("sheet") || $("fs")) return;
+    _updNagAt = Date.now(); _updFile = p;
+    openSheet(`<div id="upd"><h3>Chưa cài bản cập nhật v${esc(p.versionName || pend.v || "")}</h3>
+      <p class="muted" style="margin:-6px 4px 14px;font-size:14px;line-height:1.5">Bản cập nhật đã tải về${p.size > 0 ? ` (${fmtBytes(p.size)})` : ""} nhưng chưa được cài. Ảnh, tài khoản đăng nhập và cài đặt được giữ nguyên.</p>
+      <button class="btn" onclick="updInstallPending()">${ic("download", 18)} Cài đặt</button>
+      <button class="btn ghost" style="margin-top:10px" onclick="updDiscard()">Để sau</button>
+      <p class="faint" style="margin:10px 4px 0;font-size:12px;line-height:1.5;text-align:center">"Để sau" sẽ xoá file tải về cho nhẹ máy — cập nhật lại bất cứ lúc nào trong Tôi → Tiện ích → Kiểm tra cập nhật.</p></div>`);
+  } catch {}
+}
+// Đã lên bản mới: báo 1 lần + xoá dấu chờ cài & APK
+function updDone(info, pend) {
+  try { localStorage.removeItem(UPD_KEY); } catch {}
+  if (!_updDoneT) { _updDoneT = Date.now(); toast(`Đã cập nhật lên v${(info && info.versionName) || (pend && pend.v) || ""} ✓`, 3200); }
+  const P = _upd(); if (P && !_updBusy && !updAlive()) return Promise.resolve(P.cleanup({})).catch(() => {});
+}
+// Khởi động: đã lên bản mới -> báo + xoá APK · bỏ dở quá 1 ngày -> xoá · không có gì -> dọn sạch thư mục tải
+async function updStartup() {
+  try {
+    const P = _upd(); if (!P) return;
+    const idle = () => !_updBusy && !updAlive();   // đừng xoá file khi người dùng đang tải
+    let pend = store.get(UPD_KEY, null);
+    if (pend && !(Number(pend.c) > 0)) { try { localStorage.removeItem(UPD_KEY); } catch {} pend = null; }
+    const info = await P.getInfo(), code = Number(info && info.versionCode) || 0;
+    if (info && info.versionName && !_ver) _ver = { name: String(info.versionName), code };
+    if (!idle()) return;
+    if (pend) {
+      if (code >= Number(pend.c)) return await updDone(info, pend);
+      const t = Date.parse(pend.at || "");
+      if (!(t > 0) || Date.now() - t > 864e5) { try { localStorage.removeItem(UPD_KEY); } catch {} await P.cleanup({}); return; }
+      await P.cleanup({ keepPending: true });     // còn mới: giữ APK chờ cài, nhắc 1 lần
+      setTimeout(updOnResume, 1500); return;
+    }
+    await P.cleanup({});
+  } catch {}
+}
+window.updateSheet = updateSheet; window.updCheck = updCheck; window.updStart = updStart; window.updCancel = updCancel; window.updOpenPage = updOpenPage;
+window.updReinstall = updReinstall; window.updInstallPending = updInstallPending; window.updDiscard = updDiscard; window.updGrant = updGrant;
+
 async function loginInfoSheet() {
+  const t = NAV;
   let user; try { user = await BGL.myUser(); } catch { user = null; }
+  if (stale(t)) return;
   if (!user) return toast("Không lấy được tài khoản");
   openSheet(`<h3>Thông tin đăng nhập</h3>
     <div class="field" style="margin-bottom:12px"><label>Tên đăng nhập</label><input id="lu" class="input" value="${esc(user.username || "")}"/></div>
@@ -1386,22 +1880,23 @@ window.loginInfoSheet = loginInfoSheet;
 //  ĐIỂM DANH  (SWIPE + COLUMN + CONFIRM)  — signature feature
 // ============================================================
 async function tabAttendance(id) {
-  const yr = classYearRange(CX[id].info);
+  const t = NAV, yr = classYearRange(CX[id].info);
   const A = (CX[id].att = CX[id].att || { date: defaultSunday(yr), assign: {}, existing: {}, dirty: new Set(), idx: 0, loaded: false, undo: [], prompted: false, justSaved: false });
   loadClassAttendance(id);   // nền: dữ liệu cả năm cho Chuỗi học / thông báo sau khi Xác nhận
   $("tabBody").innerHTML = `
-    <button class="card pad press" style="width:100%;text-align:left;margin-bottom:14px;background:var(--surface)" onclick="sundaySheet('${id}')">
-      <div class="row"><span style="color:var(--brand-2)">${ic("cal", 20)}</span>
+    <button class="card pad press" style="width:100%;text-align:left;margin-bottom:14px" onclick="sundaySheet('${id}')">
+      <div class="row"><span class="cico" style="width:40px;height:40px;border-radius:14px">${ic("cal", 19)}</span>
         <div class="grow"><div class="faint" style="font-size:12px">Ngày điểm danh (Chúa Nhật)</div>
           <div id="adateLbl" style="font-weight:700;font-size:16px">${weekdayVN(A.date)}, ${fmtDate(A.date)}</div></div>
         <span class="list-arrow">${ic("chev", 20)}</span></div>
     </button>
-    <div class="seg" style="margin-bottom:16px">
-      <button onclick="openSwipeFull('${id}')">${ic("swipe", 16)} Quẹt</button>
-      <button class="on" onclick="renderColumn('${id}')">${ic("cols", 16)} Cột</button>
-    </div>
+    ${seg("attmode", [["swipe", `${ic("swipe", 16)} Quẹt`, `openSwipeFull('${id}')`], ["cols", `${ic("cols", 16)} Cột`, `renderColumn('${id}')`]], 1, "margin-bottom:16px")}
     <div id="attArea"><div class="spin"></div></div>`;
-  await loadAtt(id); renderColumn(id);
+  animateSegs($("tabBody"));
+  try { await loadAtt(id); }
+  catch (e) { if (!stale(t)) { const a = $("attArea"); if (a) a.innerHTML = errBox(e.message); } return; }
+  if (stale(t)) return;
+  renderColumn(id);
   if (!A.prompted && !isSundayToday() && yr && yr.current) { A.prompted = true; notSundayPrompt(id); }
 }
 window.tabAttendance = tabAttendance;
@@ -1410,7 +1905,8 @@ function setAttDate(id, date) {
   const A = CX[id].att; A.date = date; A.loaded = false; A.assign = {}; A.existing = {}; A.dirty = new Set(); A.idx = 0; A.undo = []; A.justSaved = false;
   const lbl = $("adateLbl"); if (lbl) lbl.innerHTML = `${weekdayVN(date)}, ${fmtDate(date)}`;
   const area = $("attArea"); if (area) area.innerHTML = `<div class="spin"></div>`;
-  loadAtt(id).then(() => renderColumn(id));
+  const t = NAV;
+  loadAtt(id).then(() => { if (!stale(t)) renderColumn(id); }, (e) => { const a = !stale(t) && $("attArea"); if (a) a.innerHTML = errBox(e.message); });
 }
 function sundaySheet(id) {
   const A = CX[id].att, list = academicSundays(classYearRange(CX[id].info));
@@ -1420,7 +1916,7 @@ function sundaySheet(id) {
     const m = sd.slice(0, 7);
     if (m !== curM) { curM = m; const [yy, mm] = m.split("-"); html += `<div class="eyebrow" style="margin:16px 2px 8px">Tháng ${mm} · ${yy}</div>`; }
     const sel = sd === A.date;
-    html += `<button class="pickbtn ${sel ? "on st-present" : ""}" style="width:100%;margin-bottom:8px;justify-content:space-between" onclick="closeSheet();setAttDate('${id}','${sd}')"><span>${weekdayVN(sd)}, ${fmtDate(sd)}</span>${sel ? ic("check", 18) : `<span class="faint">${ic("chev", 16)}</span>`}</button>`;
+    html += `<button class="pickbtn ${sel ? "on st-present" : ""}" style="width:100%;margin-bottom:8px;justify-content:space-between" onclick="closeSheet();setAttDate('${id}','${sd}')"><span>${weekdayVN(sd)}, ${fmtDate(sd)}</span>${sel ? ic("check", 18) : `<span class="faint" style="display:inline-flex;align-items:center">${ic("chev", 16)}</span>`}</button>`;
   });
   openSheet(`<h3>Chọn ngày điểm danh</h3><div style="max-height:62vh;overflow:auto;margin:0 -2px">${html}</div>`);
 }
@@ -1477,7 +1973,7 @@ window.openSwipeFull = openSwipeFull; window.closeSwipeFull = closeSwipeFull;
 function renderSwipe(id) {
   const A = CX[id].att, area = $("swipeBody");
   if (!area) return;
-  if (!A.enr || !A.enr.length) { area.innerHTML = emptyBox("👶", "Lớp chưa có thiếu nhi đang học"); return; }
+  if (!A.enr || !A.enr.length) { area.innerHTML = emptyBox(ic("users",44), "Lớp chưa có thiếu nhi đang học"); return; }
   if (A.idx >= A.enr.length) return swipeDone(id);
   const g = gestures();
   const dirRow = (icn, key) => { const st = g[key]; return `<div class="lg"><span class="dir">${ic(icn, 18)}</span><span class="chip ${st ? stCls(st) : "st-none"}" style="padding:3px 9px">${st || "Bỏ qua"}</span></div>`; };
@@ -1500,7 +1996,7 @@ function cardHTML(e, top) {
       ${(() => { const ph = photoOf(p.id); return `<div class="bigava" style="${ph ? `background-image:url('${ph}');background-size:cover;background-position:center;color:transparent;border-color:transparent` : ""}">${ph ? "" : esc(initials(p.name || p.full_name))}</div>`; })()}
       <div class="cn">${esc(p.christian_name || "")}</div>
       <div class="fn" style="font-size:${nmFs(p.name || p.full_name, 26)}px">${esc(p.name || p.full_name)}</div>
-      <div class="meta">🎂 ${fmtDate(p.birth_date)}</div>
+      <div class="meta">${ic("cake",14)} ${fmtDate(p.birth_date)}</div>
     </div>
     <div class="foot">
       <div>Cha<b>${esc(pd.father_phone || p.phone || "—")}</b></div>
@@ -1553,7 +2049,7 @@ window.swipeUndo = swipeUndo;
 function swipeDone(id) {
   const b = $("swipeBody"); if (!b) return;
   b.innerHTML = `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center">
-    <div class="disp" style="font-size:56px;color:var(--brand-2)">✓</div>
+    <div class="disp" style="font-size:56px;color:var(--brand-2)">${ic("check",56)}</div>
     <div class="disp" style="font-size:22px;margin-top:4px">Đã quẹt xong</div>
     <p class="muted" style="margin:6px 0 22px;max-width:270px">Xem lại danh sách dạng cột rồi bấm Xác nhận để gửi lên hệ thống.</p>
     <button class="btn" style="max-width:290px" onclick="closeSwipeFull('${id}')">${ic("cols", 17)} Xem &amp; xác nhận</button>
@@ -1567,7 +2063,7 @@ window.attRestart = attRestart;
 function renderColumn(id) {
   const A = CX[id].att, area = $("attArea");
   if (!area) return;
-  if (!A.enr || !A.enr.length) { area.innerHTML = emptyBox("👶", "Lớp chưa có thiếu nhi đang học"); return; }
+  if (!A.enr || !A.enr.length) { area.innerHTML = emptyBox(ic("users",44), "Lớp chưa có thiếu nhi đang học"); return; }
   const counts = {}; STATUSES.forEach((s) => (counts[s.v] = 0));
   A.enr.forEach((e) => { const v = A.assign[e.id]; if (v) counts[v]++; });
   const done = A.enr.filter((e) => A.assign[e.id]).length;
@@ -1790,7 +2286,7 @@ async function exportSheet(id) {
   openSheet(`<h3>Xuất bảng điểm danh</h3><div id="exBody"><div class="spin" style="margin:34px auto 10px"></div><p class="muted" style="text-align:center;margin:0 0 20px;font-size:13.5px">Đang tạo ảnh…</p></div>`);
   let url;
   try { url = await renderAttendanceImage(id); }
-  catch (e) { const b = $("exBody"); if (b) b.innerHTML = `<div class="empty" style="padding:26px"><div class="big">⚠️</div><div>Không tạo được ảnh: ${esc(e.message || e)}</div></div>`; return; }
+  catch (e) { const b = $("exBody"); if (b) b.innerHTML = `<div class="empty" style="padding:26px"><div class="big">${ic("warn",44)}</div><div>Không tạo được ảnh: ${esc(e.message || e)}</div></div>`; return; }
   CX[id]._exportUrl = url;
   const b = $("exBody"); if (!b) return;
   const pending = changeCount(A);
@@ -1847,24 +2343,43 @@ window.exportSheet = exportSheet; window.shareExport = shareExport; window.copyE
 // ============================================================
 async function searchScreen(q) {
   screen(appbar({ title: "Tìm kiếm", back: true }) + `<main><div class="wrap">
-    <input id="sq" class="input" placeholder="Tên thiếu nhi / giáo lý viên…" value="${esc(q || "")}" style="margin:2px 0 14px"/>
-    <div id="sres">${q ? '<div class="spin"></div>' : emptyBox("🔎", "Nhập tên để tìm")}</div>
+    <label class="searchbar">${ic("search", 18)}<input id="sq" enterkeyhint="search" placeholder="Tên thiếu nhi / giáo lý viên…" value="${esc(q || "")}"/></label>
+    <div id="sres">${q ? '<div class="spin"></div>' : emptyBox(ic("search",44), "Nhập tên để tìm")}</div>
   </div></main>`, "home");
   const inp = $("sq"); inp.focus();
   inp.addEventListener("keydown", (e) => { if (e.key === "Enter" && inp.value.trim()) go("#/search/" + encodeURIComponent(inp.value.trim())); });
   if (!q) return;
+  if (q.trim().length < 2) { $("sres").innerHTML = emptyBox(ic("search", 44), "Nhập ít nhất 2 ký tự để tìm"); return; }
+  const t = NAV;
   try {
-    const res = await BGL.search(q);
-    let arr = (res && (res.people || res.persons)) || (Array.isArray(res) ? res : (res && res.data) || []);
-    if (!Array.isArray(arr)) arr = [];
-    $("sres").innerHTML = arr.length ? `<div class="stack">${arr.map((p) => `<div class="card pad press" onclick="go('#/person/${p.id}')"><div class="row">${avatar(p, { tappable: true })}<div class="grow"><div class="nm" style="font-weight:700;font-size:${nmFs(p.name || p.full_name, 15)}px">${esc(p.name || p.full_name)}</div><div class="muted" style="font-size:12.5px">${esc(p.christian_name || "")} · ${phoneChip(p.phone, p.name || p.full_name)}</div></div><span class="list-arrow">${ic("chev", 20)}</span></div></div>`).join("")}</div>` : emptyBox("🙁", `Không thấy "${q}"`);
-  } catch (e) { $("sres").innerHTML = errBox(e.message); }
+    const res = await BGL.search(q, S.year && S.year.year);
+    if (stale(t)) return;
+    // máy chủ mới: {students, teachers, orphans} (mỗi người kèm enrollment / teaching_assignment) · bản cũ: mảng người
+    const arr = (v) => (Array.isArray(v) ? v : []);
+    const groups = res && !Array.isArray(res) && (res.students || res.teachers || res.orphans)
+      ? [["Thiếu nhi", arr(res.students), "enrollment"], ["Giáo lý viên", arr(res.teachers), "teaching_assignment"], ["Không có lớp", arr(res.orphans), ""]]
+      : [["", arr((res && (res.people || res.persons)) || (Array.isArray(res) ? res : res && res.data)), ""]];
+    const card = (p, rel) => {
+      rememberPerson(p);
+      const r = (rel && p[rel]) || {}, c = r.classroom || {}, tag = r.result || r.position || "";
+      const pi = (p.data && p.data.parents_info) || {}, phone = rel === "enrollment" ? pi.father_phone || pi.mother_phone || p.phone : p.phone;
+      return `<div class="card pad press" onclick="go('#/person/${p.id}')"><div class="row">${avatar(p, { tappable: true })}
+        <div class="grow"><div class="faint" style="font-size:12px">${esc(p.christian_name || "")}${tag ? ` · ${esc(tag)}` : ""}</div>
+          <div class="nm" style="font-weight:700;font-size:${nmFs(p.name || p.full_name, 15)}px">${esc(p.name || p.full_name)}</div>
+          <div class="muted" style="font-size:12.5px">${c.name ? `${esc(c.name)} · ` : ""}${phoneChip(phone, p.name || p.full_name)}</div></div>
+        <span class="list-arrow">${ic("chev", 20)}</span></div></div>`;
+    };
+    const html = groups.filter((g) => g[1].length).map(([label, list, rel]) =>
+      (label ? `<div class="sec-eyebrow"><span class="eyebrow">${label} · ${list.length}</span></div>` : "") + `<div class="stack">${list.map((p) => card(p, rel)).join("")}</div>`).join("");
+    $("sres").innerHTML = html || emptyBox(ic("frown", 44), `Không thấy "${q}"`);
+  } catch (e) { if (!stale(t) && $("sres")) $("sres").innerHTML = errBox(e.message); }
 }
 
 // ============================================================
 //  ROUTER
 // ============================================================
 function render() {
+  NAV++;   // màn nào còn đang tải của lần điều hướng trước sẽ tự bỏ kết quả
   if (!S.user) return loginScreen();
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   const [r, a, b, c] = parts;
@@ -1887,6 +2402,7 @@ async function boot() {
   let assignOk = false;
   try {
     const t = await BGL.teachingByPerson((S.user || {}).person_id);
+    t.forEach((x) => { rememberPerson(x.person); ((x.classroom || {}).teaching_assignments_overview || []).forEach((o) => rememberPerson(o.person)); });
     const cur = S.year ? Number(S.year.year) : classYearRange(null).year;
     S.myAssignments = t.filter((x) => x.classroom && Number(x.classroom.year) === cur);
     S.myClassId = S.myAssignments[0] && S.myAssignments[0].classroom && S.myAssignments[0].classroom.id;
@@ -1915,14 +2431,15 @@ async function pollTick() {
     if ($("sheet") || $("fs")) return;               // đang thao tác -> bỏ qua
     const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
     if (parts[0] !== "class" || !CX[parts[1]]) return;
-    const id = parts[1], tab = parts[2] || "thieunhi";
+    const id = parts[1], tab = parts[2] || "thieunhi", t = NAV;
     if (tab === "thieunhi") {
       const fresh = await BGL.classroomEnrollments(id);
+      if (stale(t)) return;                                  // người dùng đã sang màn khác trong lúc tải
       if (JSON.stringify(fresh) !== JSON.stringify(CX[id].enr)) { CX[id].enr = fresh; if ($("tabBody")) tabStudents(id); loadClassAttendance(id, true).then(() => paintStreaks(id)); }
     } else if (tab === "diemdanh") {
       const A = CX[id].att; if (!A || !A.loaded || A.saving) return;      // đang gửi -> không đồng bộ chen ngang
       const recs = await BGL.attendancesByClass(id, A.date);
-      if (A.saving) return;
+      if (A.saving || stale(t)) return;
       const freshEx = {}; recs.forEach((r) => { freshEx[r.attendable_id] = { id: r.id, status: r.status }; });
       const same = Object.keys(freshEx).length === Object.keys(A.existing).length && Object.keys(freshEx).every((k) => A.existing[k] && A.existing[k].status === freshEx[k].status && A.existing[k].id === freshEx[k].id);
       if (same) return;                                                     // không đổi
@@ -1956,7 +2473,12 @@ function syncLater(id) { const A = CX[id].att; A.syncSnooze = Date.now() + 12000
 window.syncReload = syncReload; window.syncLater = syncLater;
 async function init() {
   loading("home");
-  try { S.user = await BGL.me(); await boot(); if (!location.hash || location.hash === "#/" || location.hash === "#/home") location.hash = landingHash(); render(); }
+  try {
+    S.user = await BGL.me(); await boot();
+    // đổi hash -> sự kiện hashchange tự render; gọi render() thêm sẽ tải mọi thứ 2 lần
+    const want = landingHash();
+    if ((!location.hash || location.hash === "#/" || location.hash === "#/home") && location.hash !== want) location.hash = want; else render();
+  }
   catch { loginScreen(); }
   if (window.Capacitor?.Plugins?.App) {
     window.Capacitor.Plugins.App.addListener("backButton", () => {
@@ -1965,6 +2487,10 @@ async function init() {
       if (location.hash && !["#/home", "#/", ""].includes(location.hash)) history.back();
       else window.Capacitor.Plugins.App.exitApp();
     });
+    // quay lại app (vd. bấm Huỷ ở trình cài đặt) -> nhắc cài bản cập nhật đã tải
+    if (_upd()) try { const A = window.Capacitor.Plugins.App; [A.addListener("resume", () => updOnResume()), A.addListener("appStateChange", (s) => { if (s && s.isActive) updOnResume(); })].forEach((h) => { if (h && h.catch) h.catch(() => {}); }); } catch {}
   }
+  setTimeout(() => { updStartup().catch(() => {}); }, 1200);   // báo đã cập nhật · dọn APK cũ (không chặn app)
 }
 init();
+

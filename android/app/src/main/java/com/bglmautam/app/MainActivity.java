@@ -8,6 +8,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(SaveToGalleryPlugin.class);   // plugin nội bộ: lưu ảnh/GIF/video vào Thư viện
+        registerPlugin(AppUpdatePlugin.class);       // plugin nội bộ: kiểm tra/tải/cài bản cập nhật từ GitHub
         super.onCreate(savedInstanceState);
     }
 }

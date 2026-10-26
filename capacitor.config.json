@@ -7,14 +7,18 @@
     "iosScheme": "https"
   },
   "ios": {
-    "contentInset": "always",
+    "contentInset": "never",
     "limitsNavigationsToAppBoundDomains": false
   },
   "android": {
     "allowMixedContent": false
   },
   "plugins": {
-    "CapacitorHttp": { "enabled": true },
-    "CapacitorCookies": { "enabled": true }
+    "CapacitorHttp": {
+      "enabled": true
+    },
+    "CapacitorCookies": {
+      "enabled": true
+    }
   }
 }

@@ -4,6 +4,10 @@ name: Build App (APK + IPA unsigned)
 # KHÔNG cần Xcode/JDK ở máy bạn.
 # Chạy: GitHub -> tab Actions -> "Build App (APK + IPA unsigned)" -> Run workflow.
 # Tải file ở mục "Artifacts" cuối trang run.
+#
+# ⚠ APK ở đây là bản DEBUG (khoá debug của runner) — chỉ để thử. TUYỆT ĐỐI KHÔNG đính kèm vào GitHub Release:
+#   app tự cập nhật đọc releases/latest, APK ký khác khoá release → cài đè thất bại → người dùng phải gỡ app = mất dữ liệu.
+#   Bản phát hành chỉ build tại máy có khoá: scripts/release-android.sh (xem README "Phát hành bản cập nhật").
 
 on:
   workflow_dispatch:
@@ -24,6 +28,7 @@ jobs:
           npm ci || npm install
           npx cap sync android
       - run: cd android && chmod +x gradlew && ./gradlew assembleDebug
+      # chỉ là artifact của workflow (bản debug) — không upload lên Releases
       - uses: actions/upload-artifact@v4
         with:
           name: DiemDanh-APK

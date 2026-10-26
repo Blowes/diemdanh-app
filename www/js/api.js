@@ -160,7 +160,8 @@ const BGL = {
   teacherPositions: () => GET("v1/resource_types/teaching_assignment_position").then(d),
 
   // ---------- Tìm kiếm ----------
-  search: (q) => GET("v1/search", { q }).then(d),
+  // Web (bản 25/10/2026) gửi {query, year} và nhận {students, teachers, orphans}; giữ thêm q cho máy chủ bản cũ
+  search: (q, year) => GET("v1/search", { query: q, q, year }).then(d),
 };
 
 window.BGL = BGL;

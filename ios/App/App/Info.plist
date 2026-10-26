@@ -2,19 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSCameraUsageDescription</key>
-	<string>Dùng máy ảnh để chụp ảnh thiếu nhi</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Chọn ảnh thiếu nhi từ thư viện</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Lưu ảnh thiếu nhi vào thư viện</string>
-
-	<key>NSFaceIDUsageDescription</key>
-	<string>Dùng Face ID để đăng nhập nhanh vào Ban Giáo Lý</string>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>en</string>
+	<string>vi</string>
 	<key>CFBundleDisplayName</key>
-        <string>Ban Giáo Lý</string>
+	<string>Điểm Danh</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -29,28 +20,33 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Dùng máy ảnh để chụp ảnh thiếu nhi</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Dùng Face ID để đăng nhập nhanh vào app Điểm Danh</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Lưu ảnh thiếu nhi vào thư viện</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Chọn ảnh thiếu nhi từ thư viện</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+		<string>arm64</string>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>

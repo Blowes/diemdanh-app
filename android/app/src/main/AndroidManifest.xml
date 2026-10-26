@@ -13,6 +13,7 @@
 
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+            android:screenOrientation="portrait"
             android:name=".MainActivity"
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
@@ -35,6 +36,15 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+
+        <!-- Cài đè bản cập nhật xong → tự xoá APK đã tải cho nhẹ máy (dữ liệu app giữ nguyên) -->
+        <receiver
+            android:name=".UpdateCleanupReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 
     <!-- Permissions -->
@@ -42,4 +52,6 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Lưu ảnh/video vào Thư viện trên Android 9 trở xuống (Android 10+ dùng MediaStore, không cần quyền) -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <!-- Mở trình cài đặt hệ thống cho bản cập nhật tải từ GitHub (người dùng tự bấm "Cài đặt") -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 </manifest>
