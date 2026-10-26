@@ -107,6 +107,12 @@
       --hero-a:#1e40af; --hero-b:#172554; --login-1:#1e40af; --login-2:#1e3a8a; --login-3:#0b1437; --tab-pill:rgba(29,78,216,.12) }
     :root[data-class="gold"]{ --brand:#b45309; --brand-2:#d97706; --brand-ink:#78350f; --on-brand:#fff; --link:#b45309; --eyebrow-hi:#fef3c7; --login-tint:.6;
       --hero-a:#a16207; --hero-b:#713f12; --login-1:#a16207; --login-2:#713f12; --login-3:#2a1a04; --tab-pill:rgba(180,83,9,.13) }
+    :root[data-class="brown"]{ --brand:#8b5a2b; --brand-2:#a0693a; --brand-ink:#5c3a1a; --on-brand:#fff; --link:#8b5a2b; --eyebrow-hi:#f3dcc4; --login-tint:.6;
+      --hero-a:#7a4a22; --hero-b:#3f2510; --login-1:#7a4a22; --login-2:#4a2c14; --login-3:#1f1208; --tab-pill:rgba(139,90,43,.14) }
+    :root[data-class="black"]{ --brand:#1f2328; --brand-2:#3a4048; --brand-ink:#0d1014; --on-brand:#fff; --link:#1f2328; --eyebrow-hi:#d0d7de; --login-tint:.7;
+      --hero-a:#2b3036; --hero-b:#0d1014; --login-1:#2b3036; --login-2:#16191d; --login-3:#050607; --tab-pill:rgba(31,35,40,.12) }
+    :root[data-class="brown"][data-theme="dark"], :root[data-class="brown"].auto-dark{ --brand:#c08552; --brand-2:#d49a68; --brand-ink:#8b5a2b; --hero-a:#6b4423; --hero-b:#3b2414; --tab-pill:rgba(192,133,82,.22) }
+    :root[data-class="black"][data-theme="dark"], :root[data-class="black"].auto-dark{ --brand:#9aa4b0; --brand-2:#c3cad3; --brand-ink:#3a4048; --on-brand:#0d1014; --link:#c3cad3; --hero-a:#2b3036; --hero-b:#111418; --tab-pill:rgba(154,164,176,.2) }
     :root[data-class="pink"][data-theme="dark"], :root[data-class="pink"].auto-dark{ --brand:#EC4899; --brand-2:#F472B6; --brand-ink:#9D174D; --hero-a:#831843; --hero-b:#500724; --tab-pill:rgba(236,72,153,.2) }
     :root[data-class="green"][data-theme="dark"], :root[data-class="green"].auto-dark{ --brand:#22C55E; --brand-2:#4ADE80; --brand-ink:#15803D; --hero-a:#166534; --hero-b:#14532D; --tab-pill:rgba(34,197,94,.2) }
     :root[data-class="blue"][data-theme="dark"], :root[data-class="blue"].auto-dark{ --brand:#3B82F6; --brand-2:#60A5FA; --brand-ink:#1D4ED8; --hero-a:#1E3A8A; --hero-b:#172554; --tab-pill:rgba(59,130,246,.22) }
@@ -249,6 +255,8 @@
     .cico.t-green{background:linear-gradient(180deg,rgba(255,255,255,.32),rgba(255,255,255,0) 55%),linear-gradient(150deg,#4ade80,#15803d)}
     .cico.t-blue{background:linear-gradient(180deg,rgba(255,255,255,.32),rgba(255,255,255,0) 55%),linear-gradient(150deg,#60a5fa,#1d4ed8)}
     .cico.t-gold{background:linear-gradient(180deg,rgba(255,255,255,.32),rgba(255,255,255,0) 55%),linear-gradient(150deg,#fbbf24,#b45309)}
+    .cico.t-brown{background:linear-gradient(180deg,rgba(255,255,255,.28),rgba(255,255,255,0) 55%),linear-gradient(150deg,#c08552,#6b4423)}
+    .cico.t-black{background:linear-gradient(180deg,rgba(255,255,255,.22),rgba(255,255,255,0) 55%),linear-gradient(150deg,#4b525b,#111418);box-shadow:inset 0 0 0 1px rgba(255,255,255,.22)}
 
     .chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;
       font-size:13px;font-weight:600;line-height:1;white-space:nowrap;box-shadow:inset 0 1px 0 rgba(255,255,255,.35)}
@@ -375,6 +383,25 @@
       transition:transform .4s var(--spring)}
     .pick:active{transform:scale(.93)}
     .pick.on{box-shadow:none}
+    /* ===== cấp GLV theo màu khăn: Tu Sĩ trắng viền vàng · Huynh Trưởng đỏ viền vàng · Dự Trưởng đỏ · VĐ2 nâu viền vàng · Khác trung tính ===== */
+    .rk-ts{--rk-bg:#fffdf6; --rk-t:#3d2f0c; --rk-ring:#c99a2e}
+    .rk-ht{--rk-bg:#c81e1e; --rk-t:#fff; --rk-ring:#e7b53c}
+    .rk-dt{--rk-bg:#c81e1e; --rk-t:#fff; --rk-ring:transparent}
+    .rk-vd2{--rk-bg:#8b5a2b; --rk-t:#fff; --rk-ring:#e7b53c}
+    .rk-khac{--rk-bg:var(--quit-b); --rk-t:var(--quit-t); --rk-ring:var(--line-strong)}
+    :root[data-theme="dark"] .rk-ts, :root.auto-dark .rk-ts{--rk-bg:#f6f1e3; --rk-t:#33270a; --rk-ring:#fbbf24}
+    :root[data-theme="dark"] .rk-ht, :root.auto-dark .rk-ht{--rk-bg:#dc2626; --rk-ring:#fbbf24}
+    :root[data-theme="dark"] .rk-dt, :root.auto-dark .rk-dt{--rk-bg:#dc2626}
+    :root[data-theme="dark"] .rk-vd2, :root.auto-dark .rk-vd2{--rk-bg:#9a6534; --rk-ring:#fbbf24}
+    .rk{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;line-height:1.45;white-space:nowrap;letter-spacing:.01em;
+      background:var(--rk-bg);color:var(--rk-t);box-shadow:inset 0 0 0 1.5px var(--rk-ring)}
+    .rk-dot{display:inline-block;width:10px;height:10px;border-radius:50%;flex:none;background:var(--rk-bg);box-shadow:inset 0 0 0 1.5px var(--rk-ring)}
+    .pick.on.rk-on{background:var(--rk-bg);color:var(--rk-t)}
+    .filterbar .pick.on.rk-on{box-shadow:inset 0 0 0 1.5px var(--rk-ring),0 4px 12px -4px rgba(0,0,0,.25)}
+    .pick.on .rk-dot{background:currentColor;box-shadow:none;opacity:.85}
+    .tr-sub{font-size:12.5px;margin-top:2px;display:flex;flex-wrap:wrap;align-items:center;gap:3px 8px}
+    .tr-h{margin-top:22px}.tr-list>.tr-h:first-child{margin-top:4px}
+    .tr-h .rk{font-size:12px;padding:3px 10px}
 
     /* ===== nút xác nhận nổi phía trên thanh tab ===== */
     .confirmbar{position:fixed;left:0;right:0;z-index:25;bottom:calc(var(--tab-h) + var(--tab-gap) + env(safe-area-inset-bottom) + 12px);

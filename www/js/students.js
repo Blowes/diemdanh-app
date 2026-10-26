@@ -25,10 +25,10 @@
   const SEEDS = "nguyễn,trần,lê,phạm,hoàng,huỳnh,phan,võ,vũ,đặng,bùi,đỗ,hồ,ngô,dương,thị,văn,ngọc,minh,gia,bảo,anh,khánh,thanh,phương,quốc,đức,thiên,vy,linh,nhi,hân,thư,khang,huy,nam,phúc,khôi,quân,long".split(",");
   const BROAD = "ng,an,nh,th,in,en,uy,on,ai,oa,ha,tr,ch,ph,kh,gi,qu,ie,am,ao".split(",");   // máy chủ cho xin nhiều / phân trang: vài chuỗi rộng là đủ
   // ngành (theo Khối của lớp, không có thì theo tên lớp) · class khi chip đang chọn
-  const GROUPS = [["pink", "Chiên", "st-pink"], ["green", "Ấu", "st-present"], ["blue", "Thiếu", "st-excused"], ["gold", "Nghĩa", "st-late"], ["", "Khác", "st-quit"]]
+  const GROUPS = [["pink", "Chiên", "st-pink"], ["green", "Ấu", "st-present"], ["blue", "Thiếu", "st-excused"], ["gold", "Nghĩa", "st-late"], ["brown", "Vào Đời", "st-brown"], ["", "Khác", "st-quit"]]
     .map(([k, label, cls]) => ({ k, label, cls }));
-  const GORD = { pink: 0, green: 1, blue: 2, gold: 3, "": 4 };
-  const NG_RE = [["pink", /\b(khai tam|chien con|chien)\b/], ["green", /\b(ruoc le|au nhi|au)\b/], ["blue", /\b(them suc|thieu nhi|thieu)\b/], ["gold", /\b(bao dong|nghia si|nghia)\b/]];
+  const GORD = { pink: 0, green: 1, blue: 2, gold: 3, brown: 4, "": 5 };
+  const NG_RE = [["pink", /\b(khai tam|chien con|chien)\b/], ["green", /\b(ruoc le|au nhi|au)\b/], ["blue", /\b(them suc|thieu nhi|thieu)\b/], ["gold", /\b(bao dong|nghia si|nghia)\b/], ["brown", /\b(vao doi)\b/]];
   const KEEP_REASONS = { forbidden: 1, empty: 1, noperson: 1, short: 1 };   // lý do bền (quyền / dữ liệu) — lỗi mạng thì không nhớ
   const COLL = (() => { try { return new Intl.Collator("vi", { sensitivity: "base", numeric: true }); } catch { return null; } })();
   const cmp = (a, b) => (COLL ? COLL.compare(a || "", b || "") : String(a || "").localeCompare(String(b || "")));
@@ -56,7 +56,7 @@
     for (const t of [fam, name]) { const s = noAccent(t || ""); if (!s) continue; for (const [k, re] of NG_RE) if (re.test(s)) return k; }
     return "";
   }
-  const grp = (k) => GROUPS.find((x) => x.k === (k || "")) || GROUPS[4];
+  const grp = (k) => GROUPS.find((x) => x.k === (k || "")) || GROUPS[GROUPS.length - 1];
 
   // ---------- chuẩn hoá 3 kiểu dữ liệu về 1 dạng ----------
   // (a) GET v1/enrollments?filters[classroom_year_eq]=… : { id, result, person{…}, classroom{id,name,…} }
@@ -116,7 +116,7 @@
   const given = (n) => { const w = String(n || "").trim().split(/\s+/); return w[w.length - 1] || ""; };
   function sortRows(rows) {
     const gk = new Map(rows.map((r) => [r, given(r.name)]));
-    return rows.sort((a, b) => ((GORD[a.g] ?? 4) - (GORD[b.g] ?? 4)) || cmp(a.cname, b.cname) || String(a.cid).localeCompare(String(b.cid))
+    return rows.sort((a, b) => ((GORD[a.g] ?? 5) - (GORD[b.g] ?? 5)) || cmp(a.cname, b.cname) || String(a.cid).localeCompare(String(b.cid))
       || cmp(gk.get(a), gk.get(b)) || cmp(a.name, b.name) || keyOf(a).localeCompare(keyOf(b)));
   }
   // số em dự kiến = tổng enrollments_overview của các lớp được xem · null: lớp không kèm số liệu -> không đoán
@@ -686,14 +686,14 @@
   // tổng 1 lớp = tổng enrollments_overview (như số cần tìm của bộ dò: trừ kết quả ô tìm kiếm không trả, vd. Nghỉ Luôn) · null: không rõ
   const ovSum = (c, drop) => { const ov = c && c.enrollments_overview; if (!ov || typeof ov !== "object") return null; let n = 0; for (const k in ov) if (!drop.has(k)) n += Number(ov[k]) || 0; return n; };
   const ini = (n) => { const w = String(n || "").trim().split(/\s+/).filter(Boolean); return w.length ? (((w.length > 1 && w[w.length - 2][0]) || "") + w[w.length - 1][0]).toUpperCase() : "?"; };   // như initials() của app.js
-  const clsIco = (x) => `<div class="cico${x.g ? " t-" + x.g : ""}">${esc(ini(x.name))}</div>`;
+  const clsIco = (x) => { const k = (typeof classThemeKey === "function" && classThemeKey({ name: x.name })) || x.g; return `<div class="cico${k ? " t-" + k : ""}">${esc(ini(x.name))}</div>`; };   // Hỗ Trợ: đen dù thuộc nhóm Khác
   // mọi lớp của niên khóa (cả lớp chưa tải được em nào) + lớp chỉ thấy qua dữ liệu em · lớp mình trước, rồi Chiên -> Ấu -> Thiếu -> Nghĩa -> Khác, tên lớp
   function cardsOf() {
     const cl = classList(), mine = myCids(), drop = dropNow(), seen = new Set(), out = [];
     (cl || []).forEach((c) => { if (!c || c.id == null) return; const id = String(c.id); if (seen.has(id)) return; seen.add(id); out.push({ id, name: String(c.name || ""), g: nganhOf(c.family, c.name), t: ovSum(c, drop) }); });
     (V.data || []).forEach((r) => { if (r.cid == null) return; const id = String(r.cid); if (seen.has(id)) return; seen.add(id); out.push({ id, name: r.cname || "", g: r.g || "", t: null }); });
     out.forEach((x) => { x.n = V.cc.get(x.id) || 0; x.mine = mine.has(x.id) ? 1 : 0; });
-    return out.sort((a, b) => (b.mine - a.mine) || ((GORD[a.g] ?? 4) - (GORD[b.g] ?? 4)) || cmp(a.name, b.name) || a.id.localeCompare(b.id));
+    return out.sort((a, b) => (b.mine - a.mine) || ((GORD[a.g] ?? 5) - (GORD[b.g] ?? 5)) || cmp(a.name, b.name) || a.id.localeCompare(b.id));
   }
   // ok: đủ em (đã tải ≥ tổng) hoặc lượt dò đã xong (không tìm thêm được nữa -> chỉ ghi số em, khỏi "25/26" gây hiểu lầm)
   function cardSt(x) {
@@ -1071,6 +1071,10 @@
 .stu-back:active{transform:scale(.9)}
 .stu-ctn{font-weight:800;font-size:16.5px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .st-pink{background:rgba(236,72,153,.15);color:#be185d}
+.st-brown{background:rgba(139,90,43,.16);color:#8b5a2b}
+:root[data-theme="dark"] .st-brown,:root.auto-dark .st-brown{background:rgba(192,133,82,.22);color:#e2b48a}
+.pick.on.st-brown{background:rgba(139,90,43,.16);color:#8b5a2b}
+:root[data-theme="dark"] .pick.on.st-brown,:root.auto-dark .pick.on.st-brown{background:rgba(192,133,82,.22);color:#e2b48a}
 :root[data-theme="dark"] .st-pink,:root.auto-dark .st-pink{background:rgba(244,114,182,.2);color:#f9a8d4}
 .pick.on.st-pink{background:rgba(236,72,153,.15);color:#be185d}
 :root[data-theme="dark"] .pick.on.st-pink,:root.auto-dark .pick.on.st-pink{background:rgba(244,114,182,.2);color:#f9a8d4}`;

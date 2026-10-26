@@ -156,6 +156,8 @@ function classThemeKey(c) {
   if (t.includes("ruoc le")) return "green";
   if (t.includes("them suc")) return "blue";
   if (t.includes("bao dong")) return "gold";
+  if (t.includes("vao doi")) return "brown";                               // Vào Đời: nâu
+  if (t.includes("ho tro") || t.includes("vong ngoai")) return "black";     // Hỗ Trợ / Vòng Ngoài: đen
   return "";
 }
 function applyClassTheme(key, persist) {
@@ -641,6 +643,7 @@ window.doLogin = doLogin; window.bioLogin = bioLogin;
 // mục Học sinh (students.js tự dọn cache/observer/hẹn giờ), lớp & người đã nhớ — người đăng nhập sau không thấy gì của người trước
 function resetAccountData() {
   S._classes = S._teachers = S._students = S._studentsMeta = null; S.myAssignments = []; S.myClassId = null;
+  TF.g = "*"; TF.q = "";                                  // lọc tab GLV
   TabLoad.reset();
   try { if (typeof window.resetStudents === "function") window.resetStudents(); } catch {}
   for (const k in CX) delete CX[k]; for (const k in PEOPLE) delete PEOPLE[k];
@@ -1427,6 +1430,13 @@ function resetStreakRules(cid, eid) { store.set("bgl-streak", {}); toast("Đã k
 window.streakSheet = streakSheet; window.streakDayMenu = streakDayMenu; window.streakToggle = streakToggle; window.streakForgive = streakForgive;
 window.streakSettingsSheet = streakSettingsSheet; window.saveStreakRules = saveStreakRules; window.resetStreakRules = resetStreakRules; window.retryStreak = retryStreak;
 
+// ---------- Cấp GLV theo màu khăn (trên -> dưới): Tu Sĩ · Huynh Trưởng · Dự Trưởng · VĐ2 (chức vụ "Vào Đời 2") · Khác ----------
+const T_RANKS = [["ts", "Tu Sĩ", /\btu si\b/], ["ht", "Huynh Trưởng", /\bhuynh truong\b/], ["dt", "Dự Trưởng", /\bdu truong\b/], ["vd2", "VĐ2", /\b(vao doi|vd) ?2\b/], ["khac", "Khác", null]]
+  .map(([k, label, re], i) => ({ k, label, re, i }));
+function teacherRank(pos) { const s = noAccent(pos || ""); return T_RANKS.find((r) => r.re && r.re.test(s)) || T_RANKS[T_RANKS.length - 1]; }
+// pill màu khăn · "Khác" ghi đúng chức vụ (nếu có)
+function rankBadge(pos, r) { r = r || teacherRank(pos); return `<span class="rk rk-${r.k}">${esc(r.k === "khac" && pos ? pos : r.label)}</span>`; }
+
 // ---------- Tab: Giáo lý viên của lớp ----------
 async function tabTeachers(id) {
   const t = NAV;
@@ -1435,17 +1445,19 @@ async function tabTeachers(id) {
     if (!list) { const info = CX[id].info || {}; list = (info.teaching_assignments_overview && info.teaching_assignments_overview.length) ? info.teaching_assignments_overview : await BGL.teachingByClass(id); CX[id].teachers = list; }
     if (stale(t)) return;
     list.forEach((x) => rememberPerson(x.person));
-    const b = $("tabBody"); if (b) b.innerHTML = `<div class="stack">${list.map((x) => teacherCard(x)).join("") || emptyBox(ic("user",44), "Chưa có giáo lý viên")}</div>`;
+    const rs = list.map((x, i) => [teacherRank(x.position).i, i, x]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((r) => r[2]);   // theo cấp, giữ thứ tự cũ trong cùng cấp
+    const b = $("tabBody"); if (b) b.innerHTML = `<div class="stack">${rs.map((x) => teacherCard(x)).join("") || emptyBox(ic("user",44), "Chưa có giáo lý viên")}</div>`;
   } catch (e) { if (stale(t)) return; const b = $("tabBody"); if (b) b.innerHTML = errBox(e.message); }
 }
-function teacherCard(t, classroomName) {
-  const p = t.person || {};
+// classes: tên lớp (nhiều lớp đã nối sẵn " · ") · r: cấp đã tính sẵn (khỏi dò lại)
+function teacherCard(t, classes, r) {
+  const p = t.person || {}, nm = p.name || p.full_name;
   return `<div class="card pad press" onclick="go('#/person/${p.id}')">
     <div class="row">
       ${avatar(p, { cls: "g", tappable: true })}
       <div class="grow"><div class="faint" style="font-size:12px">${esc(p.christian_name || "")}</div>
-        <div class="nm" style="font-weight:700;font-size:${nmFs(p.name || p.full_name, 16)}px">${esc(p.name || p.full_name)}</div>
-        <div class="muted" style="font-size:12.5px">${esc(t.position || "")}${classroomName ? ` · ${esc(classroomName)}` : ""} · ${phoneChip(p.phone, p.name || p.full_name)}</div></div>
+        <div class="nm" style="font-weight:700;font-size:${nmFs(nm, 16)}px">${esc(nm)}</div>
+        <div class="muted tr-sub">${rankBadge(t.position, r)}${classes ? `<span>${esc(classes)}</span>` : ""}<span>${phoneChip(p.phone, nm)}</span></div></div>
       <span class="list-arrow">${ic("chev", 20)}</span>
     </div>
   </div>`;
@@ -1454,27 +1466,75 @@ function teacherCard(t, classroomName) {
 // ============================================================
 //  TEACHERS (year)
 // ============================================================
-// API này chậm (~2s): có danh sách lần trước -> hiện ngay, tải mới ở nền (TabLoad)
+// API này chậm (~2s): có danh sách lần trước -> hiện ngay, tải mới ở nền (TabLoad) · S._teachers giữ nguyên các dòng phân công (hồ sơ người dùng)
 TabLoad.def("teachers", { data: () => S._teachers, fetch: () => BGL.teachersByYear(S.year && S.year.year), save: (list) => { list.forEach((x) => rememberPerson(x.person)); S._teachers = list; } });
+const T_COLL = (() => { try { return new Intl.Collator("vi", { sensitivity: "base", numeric: true }); } catch { return null; } })();
+const viCmp = (a, b) => (T_COLL ? T_COLL.compare(a || "", b || "") : String(a || "").localeCompare(String(b || "")));
+const givenOf = (n) => { const w = String(n || "").trim().split(/\s+/); return w[w.length - 1] || ""; };
+// 1 dòng / 1 NGƯỜI: gộp mọi phân công (lớp nối " · ", thứ tự như máy chủ) · cấp = cấp CAO NHẤT · xếp theo cấp rồi tên (tên gọi trước, họ sau)
+let _tpMemo = { src: null, out: [] };
+function teacherPeople(list) {
+  if (list && _tpMemo.src === list) return _tpMemo.out;
+  const m = new Map();
+  (list || []).forEach((t) => {
+    const p = (t && t.person) || {}, nm = p.full_name || p.name || "", key = p.id != null ? "#" + p.id : nm ? "n:" + noAccent(nm) : ""; if (!key) return;
+    const r = teacherRank(t.position), pos = t.position || "";
+    let x = m.get(key); if (!x) m.set(key, (x = { p, nm, r, pos, cls: [], rows: [] }));
+    if (r.i < x.r.i || (r.i === x.r.i && !x.pos && pos)) { x.r = r; x.pos = pos; }
+    if (!x.p.phone && p.phone) x.p = p;                   // dòng sau đủ số điện thoại hơn
+    const cn = t.classroom && t.classroom.name; if (cn && !x.cls.includes(cn)) x.cls.push(cn);
+    x.rows.push(t);
+  });
+  const out = [...m.values()].sort((a, b) => a.r.i - b.r.i || viCmp(givenOf(a.nm), givenOf(b.nm)) || viCmp(a.nm, b.nm));
+  _tpMemo = { src: list || null, out }; return out;
+}
+const TF = { g: "*", q: "" };                             // chip cấp đang chọn · chữ lọc tên (giữ khi vào hồ sơ rồi quay lại)
+// lọc tên trước -> đếm theo cấp (số trên chip) -> lọc theo chip
+function teacherView(list) {
+  const all = teacherPeople(list), nq = noAccent(TF.q);
+  const byName = nq ? all.filter((x) => noAccent(x.nm).includes(nq)) : all, cnt = {};
+  byName.forEach((x) => (cnt[x.r.k] = (cnt[x.r.k] || 0) + 1));
+  return { all, byName, cnt, shown: TF.g === "*" ? byName : byName.filter((x) => x.r.k === TF.g) };
+}
+function teacherChips(v) {
+  const chip = (k, label, n, r) => `<button class="pick${TF.g === k ? " on " + (r ? "rk-on rk-" + k : "st-quit") : ""}" data-g="${k}" onclick="teacherGroup('${k}')">${r ? `<i class="rk-dot rk-${k}"></i>` : ""}${esc(label)} <b class="num">${n}</b></button>`;
+  const khac = TF.g === "khac" || v.all.some((x) => x.r.k === "khac");   // "Khác" chỉ hiện khi có
+  return chip("*", "Tất cả", v.byName.length) + T_RANKS.filter((r) => r.k !== "khac" || khac).map((r) => chip(r.k, r.label, v.cnt[r.k] || 0, r)).join("");
+}
+const teacherCount = (v) => `${v.shown.length !== v.all.length ? v.shown.length + " / " : ""}${v.all.length} giáo lý viên · ${esc(S.year ? S.year.long_year : "")}`;
+// "Tất cả": tiêu đề từng cấp (pill + số người) theo thứ tự cấp · chọn 1 cấp: chỉ danh sách
+function teacherListHtml(v) {
+  if (!v.shown.length) return v.all.length ? emptyBox(ic("search", 44), "Không có kết quả") : emptyBox(ic("user", 44), "Chưa có giáo lý viên");
+  return T_RANKS.map((r) => {
+    const xs = v.shown.filter((x) => x.r.k === r.k); if (!xs.length) return "";
+    return (TF.g === "*" ? `<div class="sec-eyebrow tr-h" data-g="${r.k}"><span class="rk rk-${r.k}">${esc(r.label)}</span><span class="eyebrow">${xs.length} người</span></div>` : "") +
+      `<div class="stack">${xs.map((x) => teacherCard({ person: x.p, position: x.pos }, x.cls.join(" · "), x.r)).join("")}</div>`;
+  }).join("");
+}
 function teachersScreen() {
-  const count = (list) => `${list.length} giáo lý viên · ${esc(S.year ? S.year.long_year : "")}`;
   return tabScreen("teachers", {
     title: "Giáo lý viên", what: "danh sách GLV",
-    draw: (list) => screen(appbar({ title: "Giáo lý viên", bell: true, action: `<button class="act" onclick="go('#/search')">${ic("search", 20)}</button>` }) +
+    draw: (list) => { const v = teacherView(list); screen(appbar({ title: "Giáo lý viên", bell: true, action: `<button class="act" onclick="go('#/search')">${ic("search", 20)}</button>` }) +
       `<main><div class="wrap">
-        <label class="searchbar">${ic("search", 18)}<input id="tq" placeholder="Lọc theo tên…" oninput="filterTeachers(this.value)"/></label>
-        <div class="muted" id="tCount" style="margin:0 6px 12px;font-size:13px">${count(list)}</div>
-        <div class="stack" id="tList">${list.map((x) => teacherCard(x, x.classroom && x.classroom.name)).join("")}</div>
-      </div></main>`, "teachers"),
-    update: (list) => { if ($("tList")) { $("tCount").innerHTML = count(list); filterTeachers(($("tq") || {}).value || ""); } },
+        <label class="searchbar">${ic("search", 18)}<input id="tq" placeholder="Lọc theo tên…" value="${esc(TF.q)}" oninput="filterTeachers(this.value)"/></label>
+        <div class="rev-status filterbar" id="tChips">${teacherChips(v)}</div>
+        <div class="muted" id="tCount" style="margin:0 6px 12px;font-size:13px">${teacherCount(v)}</div>
+        <div id="tList" class="tr-list">${teacherListHtml(v)}</div>
+      </div></main>`, "teachers"); },
+    update: (list) => paintTeachers(list),
   });
 }
-function filterTeachers(q) {
-  const nq = noAccent(q);
-  const list = (S._teachers || []).filter((t) => noAccent((t.person && t.person.full_name) || "").includes(nq));
-  $("tList").innerHTML = list.length ? list.map((t) => teacherCard(t, t.classroom && t.classroom.name)).join("") : emptyBox(ic("search",44), "Không có kết quả");
+// vẽ lại chip + số + danh sách (giữ chỗ cuộn ngang của hàng chip)
+function paintTeachers(list) {
+  const box = $("tList"); if (!box) return;
+  const v = teacherView(list || S._teachers), ch = $("tChips"), sl = (ch && ch.scrollLeft) || 0;
+  if (ch) { ch.innerHTML = teacherChips(v); ch.scrollLeft = sl; }
+  const c = $("tCount"); if (c) c.innerHTML = teacherCount(v);
+  box.innerHTML = teacherListHtml(v);
 }
-window.filterTeachers = filterTeachers;
+function filterTeachers(q) { TF.q = String(q == null ? "" : q); paintTeachers(); }
+function teacherGroup(k) { TF.g = T_RANKS.some((r) => r.k === k) ? k : "*"; haptic(6); paintTeachers(); }
+window.filterTeachers = filterTeachers; window.teacherGroup = teacherGroup;
 
 // ============================================================
 //  PERSON
@@ -1810,7 +1870,7 @@ window.debugSheet = debugSheet; window.toggleDebug = toggleDebug; window.clearDe
 //  (ảnh trong localStorage, tài khoản trong Keystore, cookie, cài đặt). Cài xong APK tự xoá.
 //  iOS / web: chỉ báo có bản mới + mở trang phát hành.
 // ============================================================
-const UPDATE_REPO = "Blowes/diemdanh-app", APP_VERSION = "1.7", UPD_KEY = "bgl-update-pending";
+const UPDATE_REPO = "Blowes/diemdanh-app", APP_VERSION = "1.8", UPD_KEY = "bgl-update-pending";
 const _upd = () => window.Capacitor?.Plugins?.AppUpdate;
 // Số thay đổi điểm danh chưa Xác nhận (chỉ nằm trong bộ nhớ) — cài bản mới sẽ đóng app làm mất chúng
 const updUnsent = () => { try { return Object.values(CX).reduce((n, c) => { const A = c && c.att; return n + (A && A.loaded ? (A.saving ? Math.max(1, changeCount(A)) : changeCount(A)) : 0); }, 0); } catch { return 0; } };
