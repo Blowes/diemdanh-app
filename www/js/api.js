@@ -28,14 +28,49 @@ function qs(params) {
   return s ? `?${s}` : "";
 }
 
+// ---- Hết giờ chờ: 15s (ghi 30s). fetch bị CapacitorHttp vá: GET đi qua fetch thật (nhận signal),
+//      POST/PUT/DELETE gọi native KHÔNG nhận signal -> đua với đồng hồ, kết quả về muộn bị bỏ qua ----
+const API_TIMEOUT = 15000;
+const apiNetErr = (msg, extra) => Object.assign(new Error(msg), { status: 0 }, extra);
+function apiFetch(url, opts, ms) {
+  let ac = null, tm; try { ac = new AbortController(); } catch {}
+  const run = fetch(url, ac ? Object.assign({}, opts, { signal: ac.signal }) : opts).then((res) => res.text().then((text) => ({ res, text })));
+  run.catch(() => {});   // về muộn sau khi đã hết giờ -> nuốt lỗi, không thành unhandled rejection
+  const to = new Promise((_, rej) => { tm = setTimeout(() => { try { ac && ac.abort(); } catch {} rej(apiNetErr("Máy chủ không phản hồi — kiểm tra mạng rồi thử lại.", { timeout: true })); }, ms || API_TIMEOUT); });
+  return Promise.race([run, to]).finally(() => clearTimeout(tm));
+}
+// Có phản hồi từ máy chủ (ok) / lỗi mạng -> app.js hiện chấm "mất kết nối"
+function apiNetEv(ok) { try { window.dispatchEvent(new CustomEvent("bgl-net", { detail: { ok } })); } catch {} }
+
+// ---- Phiên đăng nhập: 401 -> refresh token (MỘT lượt dùng chung cho mọi request 401 cùng lúc)
+//      -> hỏng thì BGL.onAuthLost() (app.js: đăng nhập lại ngầm bằng tài khoản đã lưu) -> vẫn hỏng thì phát "bgl-session-expired"
+//      true: đã gia hạn · false: hết phiên · null: lỗi mạng (chưa chắc hết phiên)
+let _apiRefresh = null, _apiSessionGen = 0, _apiAuthLost = false;   // _apiSessionGen: tăng mỗi lần gia hạn phiên thành công
+function apiRefreshSession() {
+  if (_apiRefresh) return _apiRefresh;
+  _apiRefresh = (async () => {
+    try {
+      const { res } = await apiFetch(`${API_BASE}/v1/auth/refresh`, { method: "POST", credentials: "include", headers: { "X-Api-Client-Key": CLIENT_KEY } });
+      if (res.ok) return true;
+    } catch { return null; }
+    if (!_apiAuthLost && typeof BGL.onAuthLost === "function") {
+      try { if (await BGL.onAuthLost()) return true; } catch (e) { if (e && e.status === 0) return null; }
+    }
+    _apiAuthLost = true;   // mật khẩu đã lưu không còn đúng -> thôi thử ngầm cho tới lần đăng nhập thành công kế tiếp
+    try { window.dispatchEvent(new CustomEvent("bgl-session-expired")); } catch {}
+    return false;
+  })().then((ok) => { if (ok) _apiSessionGen++; return ok; }).finally(() => { _apiRefresh = null; });
+  return _apiRefresh;
+}
+
 async function req(method, path, { params, body, _retried } = {}) {
   const url =
     (path.startsWith("http") ? path : `${API_BASE}/${path.replace(/^\//, "")}`) +
     qs(params);
-  const t0 = Date.now();
-  let res;
+  const t0 = Date.now(), gen = _apiSessionGen, authPath = /auth\/(login|logout|refresh)/.test(path);
+  let res, text;
   try {
-    res = await fetch(url, {
+    ({ res, text } = await apiFetch(url, {
       method,
       credentials: "include",
       headers: {
@@ -44,29 +79,29 @@ async function req(method, path, { params, body, _retried } = {}) {
         "X-Api-Client-Key": CLIENT_KEY,
       },
       body: body ? JSON.stringify(body) : undefined,
-    });
-  } catch (netErr) {
-    dbgLog({ t: new Date().toISOString(), method, url, status: 0, ms: Date.now() - t0, req: body || null, res: null, err: "Network: " + netErr.message });
-    throw netErr;
+    }, method === "GET" ? API_TIMEOUT : API_TIMEOUT * 2));
+  } catch (e) {
+    dbgLog({ t: new Date().toISOString(), method, url, status: 0, ms: Date.now() - t0, req: body || null, res: null, err: (e && e.timeout ? "Timeout: " : "Network: ") + (e && e.message) });
+    apiNetEv(false);
+    if (e && typeof e === "object" && e.status == null) try { e.status = 0; } catch {}
+    throw e;
   }
+  apiNetEv(true);
 
-  // access_token hết hạn -> refresh 1 lần rồi retry
-  if (res.status === 401 && !_retried && !path.includes("auth/login")) {
+  // access_token hết hạn -> gia hạn phiên (dùng chung 1 lượt) rồi retry 1 lần
+  if (res.status === 401 && !_retried && !authPath) {
     dbgLog({ t: new Date().toISOString(), method, url, status: 401, ms: Date.now() - t0, req: body || null, res: null, err: "401 -> thử refresh token" });
-    const r = await fetch(`${API_BASE}/v1/auth/refresh`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "X-Api-Client-Key": CLIENT_KEY },
-    });
-    if (r.ok) return req(method, path, { params, body, _retried: true });
+    const ok = gen !== _apiSessionGen ? true : await apiRefreshSession();   // phiên đã được gia hạn sau khi request này gửi đi -> chỉ cần gửi lại
+    if (ok) return req(method, path, { params, body, _retried: true });
+    if (ok === null) throw apiNetErr("Mất kết nối khi gia hạn phiên đăng nhập — thử lại.");
   }
+  if (res.ok && /auth\/login/.test(path)) _apiAuthLost = false;
 
-  const text = await res.text();
   let data;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   const errMsg = res.ok ? null : ((data && data.error) || `Lỗi ${res.status}`);
   dbgLog({ t: new Date().toISOString(), method, url, status: res.status, ms: Date.now() - t0, req: body || null, res: (text || "").slice(0, 1500), err: errMsg });
-  if (!res.ok) { const e = new Error(errMsg); e.status = res.status; throw e; }
+  if (!res.ok) { const e = new Error(errMsg); e.status = res.status; throw e; }   // 401 -> e.status = 401: vòng lặp bên gọi tự dừng
   return data;
 }
 

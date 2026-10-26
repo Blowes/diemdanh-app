@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Cần cập nhật WebView</title>
+  <!-- Capacitor server.errorPath: hiện khi Android System WebView / Chrome quá cũ (android.minWebViewVersion)
+       hoặc khi trang chính không tải được. Tự chứa, ES5, không tải gì từ ngoài. -->
+  <style>
+    :root{--bg:#f6f3ec;--card:#fff;--ink:#1d2a26;--soft:#5b6762;--brand:#17544a;--line:rgba(0,0,0,.08)}
+    @media (prefers-color-scheme:dark){:root{--bg:#20262d;--card:#2a323a;--ink:#eef2f0;--soft:#a7b3ae;--brand:#5fc3a6;--line:rgba(255,255,255,.1)}}
+    *{box-sizing:border-box}
+    html,body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font-family:-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif}
+    body{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px 16px}
+    .card{width:100%;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:22px;padding:26px 20px;text-align:center;box-shadow:0 10px 30px -14px rgba(0,0,0,.35)}
+    .ic{width:64px;height:64px;margin:0 auto 14px;border-radius:20px;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center}
+    h1{font-size:21px;line-height:1.3;margin:0 0 10px}
+    p{font-size:14.5px;line-height:1.55;color:var(--soft);margin:0 0 12px}
+    b{color:var(--ink)}
+    .btn{display:block;width:100%;min-height:50px;margin:10px 0 0;border:0;border-radius:14px;background:var(--brand);color:#fff;font:inherit;font-size:15.5px;font-weight:700;cursor:pointer;padding:12px}
+    .btn.ghost{background:transparent;color:var(--brand);border:1.5px solid var(--brand)}
+    .small{font-size:12.5px;margin-top:14px}
+    .small a{color:var(--brand)}
+    .ver{font-size:12px;opacity:.8;margin-top:12px}
+    [hidden]{display:none!important}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="ic" aria-hidden="true">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+    </div>
+
+    <div id="old">
+      <h1>Cần cập nhật Android System WebView / Chrome</h1>
+      <p>Điểm Danh cần <b>Android System WebView</b> (hoặc <b>Chrome</b>) bản <b>80</b> trở lên để chạy. Máy bạn đang dùng bản cũ hơn nên ứng dụng chưa mở được.</p>
+      <p>Bấm nút dưới đây để cập nhật trong <b>CH Play</b>, xong quay lại mở lại ứng dụng. Dữ liệu trong máy được giữ nguyên.</p>
+      <button class="btn" type="button" onclick="openStore('com.google.android.webview')">Cập nhật Android System WebView</button>
+      <button class="btn ghost" type="button" id="chromeBtn" onclick="openStore('com.android.chrome')">Cập nhật Chrome</button>
+    </div>
+
+    <div id="other" hidden>
+      <h1>Chưa mở được ứng dụng</h1>
+      <p>Có lỗi khi tải màn hình chính. Bấm <b>Mở lại</b> để thử lại. Nếu vẫn lỗi, hãy khởi động lại máy hoặc cập nhật <b>Android System WebView</b> / <b>Chrome</b> trong CH Play.</p>
+      <button class="btn ghost" type="button" onclick="openStore('com.google.android.webview')">Cập nhật Android System WebView</button>
+    </div>
+
+    <button class="btn ghost" type="button" onclick="reopen()">Đã cập nhật xong — mở lại ứng dụng</button>
+    <p class="small">Không mở được CH Play? <a href="#" onclick="openWeb();return false">Mở trang cập nhật trên trình duyệt</a></p>
+    <p class="ver" id="ver"></p>
+  </div>
+  <script>
+    (function () {
+      var ua = navigator.userAgent || "", m = ua.match(/Chrome\/(\d+)/), v = m ? parseInt(m[1], 10) : 0;
+      var android = /Android/i.test(ua), old = android && (!v || v < 80);
+      window._pkg = "com.google.android.webview";
+      if (!old) { document.getElementById("old").hidden = true; document.getElementById("other").hidden = false; }
+      // Android 7–9: WebView do Chrome cung cấp -> nút Chrome lên trước
+      var av = ua.match(/Android (\d+)/); if (av && +av[1] >= 7 && +av[1] <= 9) window._pkg = "com.android.chrome"; else document.getElementById("chromeBtn").hidden = true;
+      if (v) document.getElementById("ver").textContent = "Phiên bản WebView hiện tại: " + v;
+    })();
+    function openStore(pkg) { window._pkg = pkg; location.href = "market://details?id=" + pkg; }
+    function openWeb() { location.href = "https://play.google.com/store/apps/details?id=" + (window._pkg || "com.google.android.webview"); }
+    function reopen() { location.replace("/"); }
+  </script>
+</body>
+</html>

@@ -4,14 +4,16 @@
   "webDir": "www",
   "server": {
     "androidScheme": "https",
-    "iosScheme": "https"
+    "iosScheme": "https",
+    "errorPath": "webview-old.html"
   },
   "ios": {
     "contentInset": "never",
     "limitsNavigationsToAppBoundDomains": false
   },
   "android": {
-    "allowMixedContent": false
+    "allowMixedContent": false,
+    "minWebViewVersion": 80
   },
   "plugins": {
     "CapacitorHttp": {

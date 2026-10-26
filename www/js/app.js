@@ -5,7 +5,9 @@
 // ============================================================
 const root = document.getElementById("root");
 const $ = (id) => document.getElementById(id);
-const esc = (s) => (s == null ? "" : String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])));
+const esc = (s) => (s == null ? "" : String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])));
+// Chuỗi đặt trong '…' của onclick="…": thoát \ ' xuống dòng cho JS TRƯỚC, rồi esc() cho thuộc tính HTML (chỉ esc() thì &#39; vẫn thành ' khi chạy)
+const jsq = (s) => esc(String(s == null ? "" : s).replace(/[\\'\n\r\u2028\u2029]/g, (c) => ({ "\\": "\\\\", "'": "\\'", "\n": "\\n", "\r": "\\r", "\u2028": "\\u2028", "\u2029": "\\u2029" }[c])));
 // Bỏ dấu tiếng Việt để tìm kiếm không phân biệt dấu ("tu" khớp "Tú")
 const noAccent = (s) => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase().trim();
 // Che 3 số cuối SĐT khi HIỂN THỊ (0912345678 → 0912345***); tên đăng nhập không phải SĐT giữ nguyên
@@ -74,7 +76,9 @@ function initials(name) { if (!name) return "?"; const w = name.trim().split(/\s
 
 // ---------- ảnh học sinh (lưu client theo tài khoản) ----------
 function photoKey(pid) { return "bgl-photo-" + ((S.user && S.user.id) || "x") + "-" + pid; }
-function photoOf(pid) { try { return localStorage.getItem(photoKey(pid)) || ""; } catch { return ""; } }
+// Ảnh hợp lệ = data URL ảnh base64 (ảnh lạ từ file nhập cũ không được chèn vào style/HTML)
+const PHOTO_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+function photoOf(pid) { try { const v = localStorage.getItem(photoKey(pid)) || ""; return PHOTO_RE.test(v) ? v : ""; } catch { return ""; } }
 const AV_NAMES = {};
 function avatar(p, o = {}) {
   const id = p && p.id, ph = id ? photoOf(id) : "";
@@ -85,7 +89,7 @@ function avatar(p, o = {}) {
   const bg = ph ? `background-image:url('${ph}');background-size:cover;background-position:center;color:transparent;border-color:transparent` : `background:linear-gradient(150deg,${hue}2e,${hue}14);color:${hue};border-color:${hue}3a`;
   const b = Math.round(size * 0.4);
   const badge = (o.tappable && !ph) ? `<span style="position:absolute;right:-2px;bottom:-2px;background:var(--brand);color:#fff;width:${b}px;height:${b}px;border-radius:50%;display:grid;place-items:center;border:2px solid var(--surface)">${ic("cam", Math.round(b * 0.6))}</span>` : "";
-  return `<div class="ava ${o.cls || ""}" style="width:${size}px;height:${size}px;border-radius:50%;font-size:${fs}px;position:relative;overflow:visible;${bg}" ${tap}><span style="position:absolute;inset:0;display:grid;place-items:center;border-radius:inherit;overflow:hidden;${bg}">${ph ? "" : esc(initials(p.name || p.full_name))}</span>${badge}</div>`;
+  return `<div class="ava ${o.cls || ""}" style="width:${size}px;height:${size}px;border-radius:50%;font-size:${fs}px;position:relative;overflow:visible;${bg}" ${tap}><span style="position:absolute;inset:0;display:grid;place-items:center;border-radius:inherit;overflow:hidden;background:inherit">${ph ? "" : esc(initials(p.name || p.full_name))}</span>${badge}</div>`;
 }
 async function pickPhoto(personId) {
   const Cam = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Camera;
@@ -165,8 +169,9 @@ const currentClassTheme = () => document.documentElement.getAttribute("data-clas
 applyClassTheme(store.get("bgl-class-theme", ""), false);   // trước đăng nhập: dùng màu lớp lần trước
 if (window.matchMedia) matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => applyTheme(themeMode()));
 
-// ---------- hiệu ứng động (mặc định BẬT) ----------
-function effectsOn() { try { return localStorage.getItem("bgl-effects") !== "0"; } catch { return true; } }
+// ---------- hiệu ứng động (mặc định BẬT; máy yếu ≤4 GB RAM hoặc ≤4 nhân mà chưa tự chọn -> mặc định TẮT) ----------
+function lowEndDevice() { const n = navigator; return (n.deviceMemory > 0 && n.deviceMemory <= 4) || (n.hardwareConcurrency > 0 && n.hardwareConcurrency <= 4); }
+function effectsOn() { let v = null; try { v = localStorage.getItem("bgl-effects"); } catch {} return v != null ? v !== "0" : !lowEndDevice(); }
 document.documentElement.classList.toggle("no-fx", !effectsOn());
 function makeSparkles(host, n = 40) {
   if (!host) return;
@@ -253,19 +258,19 @@ function phoneSheet(num, who) {
   const n = String(num).replace(/\s/g, "");
   openSheet(`<h3>${esc(who || "Liên hệ")} · ${esc(n)}</h3>
     <div class="pickgrid">
-      <button class="pickbtn" onclick="closeSheet();openExternal('tel:${n}')"><span style="color:var(--present-t);display:inline-flex;align-items:center">${ic("phone",20)}</span> Gọi điện</button>
-      <button class="pickbtn" onclick="closeSheet();openExternal('sms:${n}')"><span style="color:var(--excused-t);display:inline-flex;align-items:center">${ic("chat",20)}</span> Nhắn tin</button>
+      <button class="pickbtn" onclick="closeSheet();openExternal('tel:${jsq(n)}')"><span style="color:var(--present-t);display:inline-flex;align-items:center">${ic("phone",20)}</span> Gọi điện</button>
+      <button class="pickbtn" onclick="closeSheet();openExternal('sms:${jsq(n)}')"><span style="color:var(--excused-t);display:inline-flex;align-items:center">${ic("chat",20)}</span> Nhắn tin</button>
       <button class="pickbtn clear" style="color:var(--brand-2)" onclick="closeSheet();openExternal('https://zalo.me/${zaloNum(n)}')">Mở Zalo</button>
     </div>`);
 }
-function phoneChip(num, who) { if (!num || num === "—" || num === "-") return `<b>—</b>`; const n = esc(String(num)); return `<b class="phone" onclick="event.stopPropagation();phoneSheet('${esc(num)}','${esc(who || "")}')">${n}</b>`; }
+function phoneChip(num, who) { if (!num || num === "—" || num === "-") return `<b>—</b>`; const n = esc(String(num)); return `<b class="phone" onclick="event.stopPropagation();phoneSheet('${jsq(num)}','${jsq(who || "")}')">${n}</b>`; }
 window.openExternal = openExternal; window.phoneSheet = phoneSheet;
 
 // ---------- chrome (kiểu Liquid Glass) ----------
 // Thanh trên: nút kính tròn (quay lại) · tiêu đề nhỏ hiện khi cuộn · cụm nút kính (chuông, tìm kiếm…)
 // Tiêu đề LỚN nằm ngay dưới, cuộn theo nội dung.
 function appbar({ title, sub, back, action, bell } = {}) {
-  const backBtn = back ? `<button class="gbtn back" aria-label="Quay lại" onclick="${typeof back === "string" ? `go('${back}')` : "history.back()"}">${ic("back", 20)}</button>` : `<span class="nb-sp"></span>`;
+  const backBtn = back ? `<button class="gbtn back" aria-label="Quay lại" onclick="${typeof back === "string" ? `go('${jsq(back)}')` : "history.back()"}">${ic("back", 20)}</button>` : `<span class="nb-sp"></span>`;
   const acts = (bell ? bellBtn() : "") + (action || "");
   return `<header class="nb"><div class="nb-in">${backBtn}<div class="nt">${esc(title || "")}</div>${acts ? `<div class="gcap">${acts}</div>` : `<span class="nb-sp"></span>`}</div></header>
     ${title ? `<div class="lt"><h1>${esc(title)}</h1>${sub ? `<div class="lt-sub">${esc(sub)}</div>` : ""}</div>` : ""}`;
@@ -794,7 +799,7 @@ async function tabStudents(id, focusEid) {
     const counts = {}; enr.forEach((e) => (counts[e.result] = (counts[e.result] || 0) + 1));
     const summary = `<div class="statgrid" style="margin-bottom:16px">${["Đang Học", "Nghỉ Luôn", "Lên Lớp", "Học Lại", "Chuyển Xứ"].map((k) => statTile(counts[k] || 0, k, STONE[k])).join("")}</div>`;
     const body = $("tabBody"); if (!body) return;
-    body.innerHTML = summary +
+    body.innerHTML = bdayStrip(enr) + summary +
       `<label class="searchbar">${ic("search", 18)}<input id="stuQ" placeholder="Tìm tên thiếu nhi…" oninput="filterStudents('${id}',this.value)" value="${esc(CX[id].studentQ || "")}"/></label>
        <div class="stack" id="stuList"></div>`;
     renderStudentList(id);
@@ -803,6 +808,27 @@ async function tabStudents(id, focusEid) {
     // Đến từ thông báo -> cuộn tới & làm nổi thẻ thiếu nhi
     if (focusEid) setTimeout(() => { const el = $("stu-" + focusEid); if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("hl"); setTimeout(() => el.classList.remove("hl"), 2500); } }, 60);
   } catch (e) { if (stale(t)) return; const b = $("tabBody"); if (b) b.innerHTML = errBox(e.message); }
+}
+// ---------- Sinh nhật tuần này: 7 ngày tới (tính cả hôm nay), qua cả cuối tháng / cuối năm · 29/2 -> 28/2 năm không nhuận ----------
+function birthdaysSoon(enr, now) {
+  const base = now ? new Date(now) : new Date(); base.setHours(0, 0, 0, 0);
+  const out = [];
+  (enr || []).forEach((e) => {
+    const p = e.person || {}, m = String(p.birth_date || "").match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return;
+    for (let k = 0; k < 7; k++) {
+      const d = new Date(base); d.setDate(base.getDate() + k);
+      const leap = new Date(d.getFullYear(), 1, 29).getDate() === 29, bd = +m[2] === 2 && +m[3] === 29 && !leap ? 28 : +m[3];
+      if (d.getMonth() + 1 === +m[2] && d.getDate() === bd) { out.push({ e, k, d: toISO(d), age: d.getFullYear() - +m[1] }); break; }
+    }
+  });
+  return out.sort((a, b) => a.k - b.k);
+}
+function bdayStrip(enr) {
+  const list = birthdaysSoon((enr || []).filter((e) => e.result !== "Nghỉ Luôn" && e.result !== "Chuyển Xứ"));
+  if (!list.length) return "";
+  const when = (x) => (x.k === 0 ? "Hôm nay" : x.k === 1 ? "Ngày mai" : `${weekdayVN(x.d)} ${fmtDate(x.d).slice(0, 5)}`);
+  return `<div class="card pad bday" style="margin-bottom:14px"><div class="eyebrow" style="margin:0 2px 10px;display:flex;align-items:center;gap:6px">${ic("cake", 15)} Sinh nhật tuần này</div>
+    <div class="bday-row">${list.map((x) => { const p = x.e.person || {}; return `<button class="bday-it ${x.k === 0 ? "today" : ""}" onclick="go('#/person/${p.id}')">${avatar(p, { size: 44, fs: 15 })}<span class="bn">${esc(p.name || p.full_name)}</span><span class="bw">${when(x)}${x.age > 0 && x.age < 40 ? ` · ${x.age} tuổi` : ""}</span></button>`; }).join("")}</div></div>`;
 }
 function renderStudentList(id) {
   const box = $("stuList"); if (!box) return;
@@ -824,7 +850,7 @@ function studentCard(e, cid) {
       ${avatar(p, { tappable: true })}
       <div class="grow"><div class="faint" style="font-size:12px">${esc(p.christian_name || "")}</div>
         <div class="nm" style="font-weight:700;font-size:${nmFs(p.name || p.full_name, 16)}px"><span class="link" onclick="go('#/person/${p.id}')">${esc(p.name || p.full_name)}</span></div></div>
-      <button class="chip ${RESULT_CLS[e.result] || "st-quit"}" style="border:0" onclick="resultPicker('${cid}',${e.id},'${esc(e.result || "")}')"><span class="dot"></span>${esc(e.result || "")} ${ic("chev", 13)}</button>
+      <button class="chip ${RESULT_CLS[e.result] || "st-quit"}" style="border:0" onclick="resultPicker('${cid}',${e.id},'${jsq(e.result || "")}')"><span class="dot"></span>${esc(e.result || "")} ${ic("chev", 13)}</button>
     </div>
     <div class="row" style="justify-content:space-between;margin:14px 2px 8px">
       <span class="eyebrow">Điểm số</span>
@@ -1018,9 +1044,9 @@ function streakSheet(cid, eid) {
     const isToday = t.d === today && t.eff === "off" && !adj.skip.includes(t.d);
     const chip = isToday ? `<span class="chip st-none">Hôm nay</span>`
       : t.eff === "off" ? `<span class="chip st-none">${adj.skip.includes(t.d) ? "Tuần nghỉ ✓" : "Cả lớp nghỉ"}</span>`
-      : t.st ? `<span class="chip ${stCls(t.st)}"><span class="dot"></span>${t.st}</span>` : `<span class="chip st-none">Chưa điểm</span>`;
+      : t.st ? `<span class="chip ${stCls(t.st)}"><span class="dot"></span>${esc(t.st)}</span>` : `<span class="chip st-none">Chưa điểm</span>`;
     const [lab, col] = isToday ? ["chưa điểm danh", "var(--ink-faint)"] : EFF[t.eff];
-    return `<div class="tl-row"><div class="grow"><div style="font-weight:600;font-size:13.5px">${weekdayVN(t.d)}, ${fmtDate(t.d)}</div><div style="font-size:11.5px;color:${col}">${lab}</div></div>${chip}<button class="pick" onclick="streakDayMenu('${cid}',${eid},'${t.d}')" aria-label="Tuỳ chọn ngày">${ic("gear", 14)}</button></div>`;
+    return `<div class="tl-row"><div class="grow"><div style="font-weight:600;font-size:13.5px">${weekdayVN(t.d)}, ${fmtDate(t.d)}</div><div style="font-size:11.5px;color:${col}">${lab}</div></div>${chip}<button class="pick" onclick="streakDayMenu('${cid}',${eid},'${jsq(t.d)}')" aria-label="Tuỳ chọn ngày">${ic("gear", 14)}</button></div>`;
   }).join("") || `<div class="empty" style="padding:24px;font-size:13.5px">Chưa có buổi học nào trong niên khóa.</div>`;
   const lastBreak = s.timeline.slice().reverse().find((t) => t.eff === "break");
   openSheet(`<h3>${esc(name)} · Chuỗi học</h3>
@@ -1030,7 +1056,7 @@ function streakSheet(cid, eid) {
       ${s.cur ? `<button class="btn gold" style="max-width:300px;margin-top:12px" onclick="streakCardSheet('${cid}',${eid})">${ic("sparkle", 18)} Khoe chuỗi · ảnh động chúc mừng</button>` : ""}
     </div>
     <div class="statgrid" style="margin-bottom:14px">${statTile(s.best, "Dài nhất", "amber")}${statTile(s.attended, "Buổi có mặt", "green")}${statTile(s.timeline.filter((t) => t.eff === "break").length, "Lần mất chuỗi", "red")}</div>
-    ${lastBreak ? `<button class="btn ghost" style="margin-bottom:12px;color:var(--brand-2)" onclick="streakForgive('${cid}',${eid},'${lastBreak.d}')">${ic("sparkle", 17)} Khôi phục chuỗi (bỏ qua ${fmtDate(lastBreak.d).slice(0, 5)})</button>` : ""}
+    ${lastBreak ? `<button class="btn ghost" style="margin-bottom:12px;color:var(--brand-2)" onclick="streakForgive('${cid}',${eid},'${jsq(lastBreak.d)}')">${ic("sparkle", 17)} Khôi phục chuỗi (bỏ qua ${fmtDate(lastBreak.d).slice(0, 5)})</button>` : ""}
     ${s.truncated ? `<div class="authmsg err" style="margin:0 2px 12px">${ic("bug", 16)} Dữ liệu điểm danh quá lớn, chỉ tải được một phần — chuỗi có thể chưa chính xác.</div>` : ""}
     <p class="muted" style="margin:0 2px 10px;font-size:12.5px;line-height:1.45">Tuần cả lớp không điểm danh được xem là tuần nghỉ, không làm mất chuỗi. Bấm ${ic("gear", 12)} ở từng ngày để bỏ qua cho em này hoặc đánh dấu tuần nghỉ cả lớp.</p>
     <div class="card divlist" style="overflow:hidden;max-height:42vh;overflow-y:auto">${rows}</div>
@@ -1040,8 +1066,8 @@ function streakDayMenu(cid, eid, d) {
   const adj = streakAdj(cid), isSkip = adj.skip.includes(d), isForg = (adj.forgive[String(eid)] || []).includes(d);
   openSheet(`<h3>${weekdayVN(d)}, ${fmtDate(d)}</h3>
     <div class="pickgrid">
-      <button class="pickbtn ${isForg ? "on st-excused" : ""}" style="grid-column:span 2" onclick="streakToggle('${cid}',${eid},'${d}','forgive')"><span class="sw" style="background:var(--excused-t)"></span><span>${isForg ? "Bỏ bỏ-qua · tính lại ngày này" : "Bỏ qua ngày này cho em này"}<br><small class="muted">không cộng, không mất chuỗi</small></span></button>
-      <button class="pickbtn ${isSkip ? "on st-late" : ""}" style="grid-column:span 2" onclick="streakToggle('${cid}',${eid},'${d}','skip')"><span class="sw" style="background:var(--late-t)"></span><span>${isSkip ? "Bỏ đánh dấu tuần nghỉ" : "Tuần nghỉ cả lớp"}<br><small class="muted">không tính cho tất cả thiếu nhi</small></span></button>
+      <button class="pickbtn ${isForg ? "on st-excused" : ""}" style="grid-column:span 2" onclick="streakToggle('${cid}',${eid},'${jsq(d)}','forgive')"><span class="sw" style="background:var(--excused-t)"></span><span>${isForg ? "Bỏ bỏ-qua · tính lại ngày này" : "Bỏ qua ngày này cho em này"}<br><small class="muted">không cộng, không mất chuỗi</small></span></button>
+      <button class="pickbtn ${isSkip ? "on st-late" : ""}" style="grid-column:span 2" onclick="streakToggle('${cid}',${eid},'${jsq(d)}','skip')"><span class="sw" style="background:var(--late-t)"></span><span>${isSkip ? "Bỏ đánh dấu tuần nghỉ" : "Tuần nghỉ cả lớp"}<br><small class="muted">không tính cho tất cả thiếu nhi</small></span></button>
       <button class="pickbtn clear" onclick="streakSheet('${cid}',${eid})">Quay lại</button>
     </div>`);
 }
@@ -1629,27 +1655,51 @@ function importData() {
   pickImportFile((docs) => {
     const backups = docs.filter((x) => x.data && x.data.photos), streaks = docs.filter((x) => x.data && x.data.type === "streak");
     if (!backups.length && !streaks.length) return toast("File sao lưu không hợp lệ");
-    let n = 0, nc = 0;
-    backups.forEach((x) => (n += applyBackup(x.data)));
+    let n = 0, nc = 0, skip = 0, full = false;
+    backups.forEach((x) => { const r = applyBackup(x.data); n += r.n; skip += r.skip; full = full || r.full; });
     streaks.forEach((x) => (nc += applyStreakImport(x.data)));   // .zip có kèm file chuỗi học -> gộp luôn
     applyTheme(themeMode()); document.documentElement.classList.toggle("no-fx", !effectsOn());
-    closeSheet(); toast(backups.length ? `Đã nhập ${n} ảnh + cài đặt ✓` : `Đã nhập điều chỉnh chuỗi của ${nc} lớp ✓`); render();
+    const sk = skip ? ` · bỏ qua ${skip} mục ${full ? "(bộ nhớ đầy / không hợp lệ)" : "không hợp lệ"}` : "";
+    closeSheet(); toast(backups.length ? `Đã nhập ${n} ảnh + cài đặt ✓${sk}` : `Đã nhập điều chỉnh chuỗi của ${nc} lớp ✓`, sk ? 4200 : 2200); render();
   });
 }
-// Ghi 1 file sao lưu vào máy; trả về số ảnh đã nhập
+// Ghi 1 file sao lưu vào máy (gán cho tài khoản đang đăng nhập) -> { n: số ảnh đã ghi, skip: số mục bỏ qua, full: có lần ghi lỗi do bộ nhớ }
+// CHỈ nhận: ảnh bgl-photo-*-<id> (data URL ảnh base64) · điều chỉnh chuỗi bgl-streak-adj-*-<lớp> · vài cài đặt cố định — khoá lạ bị bỏ qua
+const bkDate = (x) => typeof x === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x);
+const bkObj = (x) => !!x && typeof x === "object" && !Array.isArray(x);
+const BACKUP_SETTINGS = {   // khoá -> hàm làm sạch giá trị (đã JSON.parse); undefined = bỏ qua
+  "bgl-gestures": (v) => { if (!bkObj(v)) return; const g = {}; Object.keys(GESTURE_DEF).forEach((k) => { if (STATUSES.some((st) => st.v === v[k])) g[k] = v[k]; }); return g; },
+  "bgl-theme": (v) => (["system", "light", "dark"].includes(v) ? v : undefined),
+  "bgl-streak": (v) => { if (!bkObj(v)) return; const r = {}; STATUSES.forEach((st) => { if (["add", "hold", "break"].includes(v[st.v])) r[st.v] = v[st.v]; }); return r; },
+};
 function applyBackup(d) {
-  let n = 0;
-  Object.keys(d.photos || {}).forEach((k) => {
-    const val = d.photos[k]; try { localStorage.setItem(k, val); } catch {}
-    const m = k.match(/-(\d+)$/); if (m && S.user) { try { localStorage.setItem(photoKey(m[1]), val); } catch {} } n++;
+  let n = 0, skip = 0, full = false;
+  const obj = (x) => (bkObj(x) ? x : {});
+  const put = (k, v) => { try { localStorage.setItem(k, v); return true; } catch { full = true; skip++; return false; } };
+  const parse = (v) => { try { return typeof v === "string" ? JSON.parse(v) : undefined; } catch { return undefined; } };
+  const photos = obj(d && d.photos), settings = obj(d && d.settings), names = obj(d && d.names), got = {};
+  Object.keys(photos).forEach((k) => {
+    const m = k.match(/^bgl-photo-.*-(\d+)$/), val = photos[k];
+    if (!m || typeof val !== "string" || !PHOTO_RE.test(val)) { skip++; return; }
+    if (put(photoKey(m[1]), val)) { n++; got[m[1]] = 1; }
   });
-  if (d.names) { try { const cur = JSON.parse(localStorage.getItem("bgl-photo-names") || "{}"); localStorage.setItem("bgl-photo-names", JSON.stringify(Object.assign(cur, d.names))); } catch {} }
-  if (d.settings) Object.keys(d.settings).forEach((k) => {
-    if (d.settings[k] == null) return;
-    try { localStorage.setItem(k, d.settings[k]); } catch {}
-    const m = k.match(/^bgl-streak-adj-[^-]+-(\d+)$/); if (m && S.user) { try { localStorage.setItem(streakAdjKey(m[1]), d.settings[k]); } catch {} }   // gán cho tài khoản đang đăng nhập
+  // tên kèm ảnh (hiện trong Xoá ảnh): chỉ id số + chuỗi ngắn, cho các ảnh vừa nhập
+  try { const cur = obj(JSON.parse(localStorage.getItem("bgl-photo-names") || "{}")); let ch = 0; Object.keys(names).forEach((id) => { if (got[id] && typeof names[id] === "string") { cur[id] = names[id].slice(0, 120); ch++; } }); if (ch) localStorage.setItem("bgl-photo-names", JSON.stringify(cur)); } catch {}
+  Object.keys(settings).forEach((k) => {
+    const v = settings[k]; if (v == null) return;
+    const m = k.match(/^bgl-streak-adj-[^-]+-(\d+)$/);
+    if (m) {   // điều chỉnh chuỗi: chỉ giữ ngày YYYY-MM-DD (cùng dạng applyStreakImport)
+      const a = parse(v); if (!bkObj(a)) { skip++; return; }
+      const forgive = {}; Object.keys(obj(a.forgive)).forEach((eid) => { const arr = Array.isArray(a.forgive[eid]) ? a.forgive[eid].filter(bkDate) : []; if (/^\d+$/.test(eid) && arr.length) forgive[eid] = arr; });
+      put(streakAdjKey(m[1]), JSON.stringify({ skip: (Array.isArray(a.skip) ? a.skip : []).filter(bkDate), forgive }));
+      return;
+    }
+    if (k === "bgl-effects") { if (v === "0" || v === "1") put(k, v); else skip++; return; }
+    const fix = BACKUP_SETTINGS[k], val = fix ? fix(parse(v)) : undefined;
+    if (val === undefined) { skip++; return; }
+    put(k, JSON.stringify(val));
   });
-  return n;
+  return { n, skip, full };
 }
 window.importData = importData;
 
@@ -1684,11 +1734,11 @@ function deletePhotosSheet() {
   const rows = photoKeys().map((k) => {
     const pid = (k.match(/-(\d+)$/) || [])[1] || "";
     const nm = names[pid] || AV_NAMES[pid] || ("Học sinh #" + pid);
-    const ph = localStorage.getItem(k);
+    const raw = localStorage.getItem(k) || "", ph = PHOTO_RE.test(raw) ? raw : "";
     return `<div class="rev-row" style="align-items:center">
       <div class="ava" style="width:40px;height:40px;background-image:url('${ph}');background-size:cover;background-position:center;border-color:transparent"></div>
       <div class="grow" style="font-weight:600;font-size:14px">${esc(nm)}</div>
-      <button class="pick" style="color:var(--danger);border-color:var(--danger)" onclick="delOnePhoto('${k}')">${ic("trash", 15)} Xoá</button>
+      <button class="pick" style="color:var(--danger);border-color:var(--danger)" onclick="delOnePhoto('${jsq(k)}')">${ic("trash", 15)} Xoá</button>
     </div>`;
   }).join("") || `<div class="empty" style="padding:24px">Chưa có ảnh nào</div>`;
   openSheet(`<h3>Ảnh học sinh</h3>
@@ -1754,7 +1804,7 @@ window.debugSheet = debugSheet; window.toggleDebug = toggleDebug; window.clearDe
 //  (ảnh trong localStorage, tài khoản trong Keystore, cookie, cài đặt). Cài xong APK tự xoá.
 //  iOS / web: chỉ báo có bản mới + mở trang phát hành.
 // ============================================================
-const UPDATE_REPO = "Blowes/diemdanh-app", APP_VERSION = "1.5", UPD_KEY = "bgl-update-pending";
+const UPDATE_REPO = "Blowes/diemdanh-app", APP_VERSION = "1.6", UPD_KEY = "bgl-update-pending";
 const _upd = () => window.Capacitor?.Plugins?.AppUpdate;
 // Số thay đổi điểm danh chưa Xác nhận (chỉ nằm trong bộ nhớ) — cài bản mới sẽ đóng app làm mất chúng
 const updUnsent = () => { try { return Object.values(CX).reduce((n, c) => { const A = c && c.att; return n + (A && A.loaded ? (A.saving ? Math.max(1, changeCount(A)) : changeCount(A)) : 0); }, 0); } catch { return 0; } };
@@ -1766,15 +1816,18 @@ function cmpVer(a, b) { const x = verParts(a) || [0], y = verParts(b) || [0]; fo
 function parseTag(tag) { const m = String(tag == null ? "" : tag).trim().match(/^[vV]?(\d+(?:\.\d+){0,3})(?:[-+][0-9A-Za-z.+-]*)?$/); return m ? m[1].split(".").map(Number).join(".") : null; }
 // File .apk đầu tiên trong assets (ưu tiên tên có "DiemDanh"), chỉ nhận link https
 function pickApk(assets) { const l = (Array.isArray(assets) ? assets : []).filter((a) => a && typeof a.name === "string" && /\.apk$/i.test(a.name) && /^https:\/\//i.test(a.browser_download_url || "") && (!a.state || a.state === "uploaded")); return l.find((a) => /diemdanh/i.test(a.name)) || l[0] || null; }
-// Ghi chú phát hành: esc() TRƯỚC rồi mới thêm thẻ (gạch đầu dòng, tiêu đề, **đậm**) -> không chèn được HTML
+// Dòng "minVersionCode: N" trong ghi chú phát hành (có thể có "- ", `…`, **…**) -> N; không có / sai -> 0
+const MIN_CODE_RE = /^[ \t>*-]*[`*]*minVersionCode[`*]*[ \t]*[:=][ \t`*]*(\d{1,9})(?!\d)[ \t`*]*$/im;
+function parseMinCode(body) { const m = String(body == null ? "" : body).replace(/\r\n?/g, "\n").match(MIN_CODE_RE); return m ? Number(m[1]) : 0; }
+// Ghi chú phát hành: esc() TRƯỚC rồi mới thêm thẻ (gạch đầu dòng, tiêu đề, **đậm**) -> không chèn được HTML · ẩn dòng minVersionCode
 function relNotes(body, max = 2000) {
-  let s = String(body == null ? "" : body).replace(/\r\n?/g, "\n").replace(/<!--[\s\S]*?-->/g, "").replace(/\n{3,}/g, "\n\n").trim(); if (!s) return "";
+  let s = String(body == null ? "" : body).replace(/\r\n?/g, "\n").replace(/<!--[\s\S]*?-->/g, "").replace(new RegExp(MIN_CODE_RE.source + "\\n?", "gim"), "").replace(/\n{3,}/g, "\n\n").trim(); if (!s) return "";
   if (s.length > max) s = s.slice(0, max).replace(/\s+\S*$/, "") + " …";
   const md = (x) => x.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
   return esc(s).split("\n").map((l) => { const t = l.trim(), b = t.match(/^[-*]\s+(.*)$/), h = t.match(/^#{1,6}\s+(.*)$/); return b ? `<div style="display:flex;gap:8px"><span>•</span><span>${md(b[1])}</span></div>` : h ? `<div style="font-weight:700;margin-top:4px">${md(h[1])}</div>` : t ? `<div>${md(t)}</div>` : "<br>"; }).join("");
 }
 // ==== /UPDATE HELPERS ====
-window.__upd = { cmpVer, parseTag, pickApk, relNotes };
+window.__upd = { cmpVer, parseTag, pickApk, relNotes, parseMinCode };
 
 // Phiên bản đang cài: Android -> AppUpdate.getInfo · iOS -> App.getInfo · web -> APP_VERSION
 let _ver = null;
@@ -2008,6 +2061,57 @@ async function updStartup() {
     await P.cleanup({});
   } catch {}
 }
+
+// ---- Tự kiểm tra ngầm (Android): lúc mở / quay lại app, có mạng, tối đa 1 lần / 24 giờ -> có bản mới thì hiện thanh nhỏ
+//      "Có bản mới vX — Cập nhật" (bấm mở bảng cập nhật). Bản đang cài có versionCode < minVersionCode của bản mới nhất
+//      -> màn chặn chỉ cho Cập nhật (vẫn do người dùng bấm tải / cài, không ép cài). Nhớ kết quả để mở app offline vẫn chặn.
+const UPD_AUTO_KEY = "bgl-update-auto";   // { at: lần kiểm tra cuối (ms), v: bản mới nhất, min: minVersionCode }
+let _updAutoBusy = false;
+async function updAuto() {
+  const P = _upd(), plat = window.Capacitor?.getPlatform && window.Capacitor.getPlatform();
+  if (!P || plat !== "android" || _updAutoBusy) return;
+  _updAutoBusy = true;
+  try {
+    const cur = await appVersion(), last = store.get(UPD_AUTO_KEY, null) || {};
+    const must = (r) => !!r && Number(r.min) > 0 && cur.code > 0 && cur.code < Number(r.min) && cmpVer(r.v, cur.name) > 0;
+    // còn điểm danh chưa Xác nhận -> chưa chặn (để người dùng còn vào Xác nhận), chỉ báo; lần mở app sau sẽ chặn
+    const block = (v) => (updUnsent() ? updBanner(v) : updBlock(v));
+    if (must(last)) block(last.v);
+    const age = Date.now() - (Number(last.at) || 0);
+    if (!must(last) && age >= 0 && age < 864e5) return;    // đã kiểm tra trong 24 giờ (đang bị chặn thì luôn kiểm tra lại: admin có thể đã hạ mức)
+    if (navigator.onLine === false) return;
+    let rel;
+    try { rel = await fetchLatestRelease(); }
+    catch (e) { if (e && e.code === "RATE") store.set(UPD_AUTO_KEY, Object.assign({}, last, { at: Date.now() })); return; }   // mất mạng -> lần sau thử lại
+    const ver = rel && !rel.none ? parseTag(rel.tag_name) : null, rec = { at: Date.now(), v: ver || "", min: ver ? parseMinCode(rel.body) : 0 };
+    store.set(UPD_AUTO_KEY, rec);
+    if (must(rec)) return block(rec.v);
+    updUnblock();
+    if (ver && cmpVer(ver, cur.name) > 0 && !updAlive()) updBanner(ver);
+  } catch {} finally { _updAutoBusy = false; }
+}
+// Thanh nhỏ phía trên, không chặn thao tác; tự ẩn sau 15 giây
+function updBanner(ver) {
+  if (typeof document === "undefined" || !document.body || $("updBanner") || $("updBlock")) return;
+  document.body.insertAdjacentHTML("beforeend", `<div class="toast on" id="updBanner" role="status" style="pointer-events:auto;z-index:45;top:calc(env(safe-area-inset-top) + 10px);bottom:auto;display:flex;align-items:center;gap:6px;padding:4px 4px 4px 14px;white-space:nowrap">
+    <button style="all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:8px;padding:6px 0" onclick="updBannerGo()">${ic("sparkle", 16)}<span>Có bản mới v${esc(ver)} — <b style="color:var(--brand)">Cập nhật</b></span></button>
+    <button aria-label="Đóng" style="all:unset;cursor:pointer;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;color:var(--ink-faint)" onclick="updBannerClose()">${ic("x", 14)}</button></div>`);
+  const b = $("updBanner"); setTimeout(() => { if (b && $("updBanner") === b) b.remove(); }, 15000);
+}
+function updBannerClose() { const b = $("updBanner"); if (b) b.remove(); }
+function updBannerGo() { updBannerClose(); updateSheet(); }
+// Màn chặn: phủ cả app (dưới bảng cập nhật), chỉ có nút Cập nhật; nút Back = thoát app
+function updBlock(ver) {
+  updBannerClose();
+  if (typeof document === "undefined" || !document.body || $("updBlock")) return;
+  document.body.insertAdjacentHTML("beforeend", `<div id="updBlock" role="alertdialog" aria-modal="true" aria-labelledby="updBlockT" style="position:fixed;inset:0;z-index:82;background:var(--bg);color:var(--ink);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:calc(env(safe-area-inset-top) + 24px) 24px calc(env(safe-area-inset-bottom) + 24px);text-align:center">
+    <div style="color:var(--brand)">${ic("download", 52)}</div>
+    <h2 class="disp" id="updBlockT" style="margin:0;font-size:23px">Cần cập nhật ứng dụng</h2>
+    <p class="muted" style="margin:0;max-width:360px;font-size:14.5px;line-height:1.55">Phiên bản đang cài đã cũ, không còn được hỗ trợ. Hãy cập nhật lên <b style="color:var(--ink)">v${esc(ver)}</b> để tiếp tục dùng — ảnh, tài khoản đăng nhập và cài đặt được giữ nguyên.</p>
+    <button class="btn" style="max-width:360px;margin-top:8px" onclick="updateSheet()">${ic("download", 18)} Cập nhật</button></div>`);
+}
+function updUnblock() { const b = $("updBlock"); if (b) b.remove(); }
+window.updBannerGo = updBannerGo; window.updBannerClose = updBannerClose;
 window.updateSheet = updateSheet; window.updCheck = updCheck; window.updStart = updStart; window.updCancel = updCancel; window.updOpenPage = updOpenPage;
 window.updReinstall = updReinstall; window.updInstallPending = updInstallPending; window.updDiscard = updDiscard; window.updGrant = updGrant;
 
@@ -2040,31 +2144,48 @@ window.loginInfoSheet = loginInfoSheet;
 async function tabAttendance(id) {
   const t = NAV, yr = classYearRange(CX[id].info);
   const A = (CX[id].att = CX[id].att || { date: defaultSunday(yr), assign: {}, existing: {}, dirty: new Set(), idx: 0, loaded: false, undo: [], prompted: false, justSaved: false });
-  loadClassAttendance(id);   // nền: dữ liệu cả năm cho Chuỗi học / thông báo sau khi Xác nhận
-  $("tabBody").innerHTML = `
+  loadClassAttendance(id).then(() => { if (!stale(t)) paintAskCard(id); });   // nền: dữ liệu cả năm cho Chuỗi học / Cần hỏi thăm / thông báo sau khi Xác nhận
+  const mode = attModeGet();
+  $("tabBody").innerHTML = `<div id="askCard"></div>
     <button class="card pad press" style="width:100%;text-align:left;margin-bottom:14px" onclick="sundaySheet('${id}')">
       <div class="row"><span class="cico" style="width:40px;height:40px;border-radius:14px">${ic("cal", 19)}</span>
-        <div class="grow"><div class="faint" style="font-size:12px">Ngày điểm danh (Chúa Nhật)</div>
+        <div class="grow"><div class="faint" style="font-size:13px">Ngày điểm danh (Chúa Nhật)</div>
           <div id="adateLbl" style="font-weight:700;font-size:16px">${weekdayVN(A.date)}, ${fmtDate(A.date)}</div></div>
         <span class="list-arrow">${ic("chev", 20)}</span></div>
     </button>
-    ${seg("attmode", [["swipe", `${ic("swipe", 16)} Quẹt`, `openSwipeFull('${id}')`], ["cols", `${ic("cols", 16)} Cột`, `renderColumn('${id}')`]], 1, "margin-bottom:16px")}
+    <div id="attSeg">${seg("attmode", [["swipe", `${ic("swipe", 16)} Quẹt`, `attMode('${id}','swipe')`], ["cols", `${ic("cols", 16)} Cột`, `attMode('${id}','cols')`]], mode === "swipe" ? 0 : 1, "margin-bottom:16px")}</div>
     <div id="attArea"><div class="spin"></div></div>`;
   animateSegs($("tabBody"));
-  try { await loadAtt(id); }
+  let restored = 0;
+  try { restored = await loadAtt(id); }
   catch (e) { if (!stale(t)) { const a = $("attArea"); if (a) a.innerHTML = errBox(e.message); } return; }
   if (stale(t)) return;
-  renderColumn(id);
+  renderColumn(id); paintAskCard(id);
+  if (restored) toast(`Đã khôi phục ${restored} thay đổi chưa gửi`, 2800);
   if (!A.prompted && !isSundayToday() && yr && yr.current) { A.prompted = true; notSundayPrompt(id); }
+  else if (mode === "swipe" && A.enr && A.enr.some((e) => !A.assign[e.id]) && !$("sheet")) {   // lần trước dùng Quẹt -> mở lại Quẹt, từ em chưa điểm đầu tiên
+    if (!A.undo.length) A.idx = Math.max(0, A.enr.findIndex((e) => !A.assign[e.id]));
+    openSwipeFull(id);
+  }
 }
 window.tabAttendance = tabAttendance;
+// Chế độ điểm danh nhớ lần trước (Quẹt / Cột)
+const attModeGet = () => (store.get("bgl-attmode", "cols") === "swipe" ? "swipe" : "cols");
+function attMode(id, m) {
+  store.set("bgl-attmode", m); const i = m === "swipe" ? 0 : 1; SEGMEM.attmode = i;
+  const sg = $("attSeg") && $("attSeg").querySelector(".seg");
+  if (sg) { sg.style.setProperty("--i", i); sg.querySelectorAll("button").forEach((b, n) => b.classList.toggle("on", n === i)); }
+  if (m === "swipe") openSwipeFull(id); else renderColumn(id);
+}
+window.attMode = attMode;
 
 function setAttDate(id, date) {
+  attDraftFlush(id);   // nháp của ngày đang xem ghi ngay trước khi đổi ngày
   const A = CX[id].att; A.date = date; A.loaded = false; A.assign = {}; A.existing = {}; A.dirty = new Set(); A.idx = 0; A.undo = []; A.justSaved = false;
   const lbl = $("adateLbl"); if (lbl) lbl.innerHTML = `${weekdayVN(date)}, ${fmtDate(date)}`;
   const area = $("attArea"); if (area) area.innerHTML = `<div class="spin"></div>`;
   const t = NAV;
-  loadAtt(id).then(() => { if (!stale(t)) renderColumn(id); }, (e) => { const a = !stale(t) && $("attArea"); if (a) a.innerHTML = errBox(e.message); });
+  loadAtt(id).then((n) => { if (stale(t)) return; renderColumn(id); if (n) toast(`Đã khôi phục ${n} thay đổi chưa gửi`, 2800); }, (e) => { const a = !stale(t) && $("attArea"); if (a) a.innerHTML = errBox(e.message); });
 }
 function sundaySheet(id) {
   const A = CX[id].att, list = academicSundays(classYearRange(CX[id].info));
@@ -2091,7 +2212,7 @@ window.setAttDate = setAttDate; window.sundaySheet = sundaySheet; window.notSund
 
 async function loadAtt(id) {
   const A = CX[id].att;
-  if (A.loaded) return;
+  if (A.loaded) return 0;
   const enr = CX[id].enr || (CX[id].enr = await BGL.classroomEnrollments(id));
   A.enr = enr.filter((e) => e.result === "Đang Học" || !e.result || e.result === "Học Lại");
   if (!A.enr.length) A.enr = enr;
@@ -2101,6 +2222,7 @@ async function loadAtt(id) {
     recs.forEach((r) => { A.existing[r.attendable_id] = { id: r.id, status: r.status }; A.assign[r.attendable_id] = r.status; });
   } catch { A.existing = {}; }
   A.idx = 0; A.undo = []; A.dirty = new Set(); A.syncSnooze = 0; A.justSaved = false; A.loaded = true;
+  return attDraftRestore(id);   // nháp chưa gửi (tắt app / mất mạng) -> đè lên dữ liệu web
 }
 function changeCount(A) {
   let n = 0;
@@ -2108,6 +2230,46 @@ function changeCount(A) {
   for (const eid in A.existing) { if (!(eid in A.assign) && A.existing[eid]) n++; }
   return n;
 }
+
+// ---------- BẢN NHÁP điểm danh chưa gửi — lưu máy theo tài khoản · lớp · ngày (tắt app / mất mạng không mất) ----------
+// { assign: {eid: trạng thái | ""}, dirty: [eid…], t } · ghi trễ ~300ms sau mỗi lần đổi · gửi hết thành công -> xoá · quá 14 ngày -> dọn lúc mở app
+const DRAFT_PFX = "bgl-att-draft-", DRAFT_TTL = 14 * 864e5, _draftT = {};
+const draftKey = (id, date) => `${DRAFT_PFX}${(S.user && S.user.id) || "x"}-${id}-${date}`;
+function attDraftWrite(id, date) {
+  const A = CX[id] && CX[id].att; if (!A || (date && A.date !== date)) return;
+  const k = draftKey(id, A.date), dirty = [...A.dirty];
+  if (!dirty.length) { try { localStorage.removeItem(k); } catch {} return; }
+  const assign = {}; dirty.forEach((e) => { assign[e] = A.assign[e] || ""; });
+  store.set(k, { assign, dirty, t: Date.now() });
+}
+function attDraftSave(id) { const A = CX[id] && CX[id].att; if (!A) return; const d = A.date; clearTimeout(_draftT[id]); _draftT[id] = setTimeout(() => { delete _draftT[id]; attDraftWrite(id, d); }, 300); }
+function attDraftFlush(id) { if (!_draftT[id]) return; clearTimeout(_draftT[id]); delete _draftT[id]; attDraftWrite(id); }
+// Mở lại lớp/ngày: áp nháp lên dữ liệu web, bỏ mục web đã đúng như nháp / em không còn trong danh sách -> số mục khôi phục
+function attDraftRestore(id) {
+  const A = CX[id].att, k = draftKey(id, A.date), d = store.get(k, null);
+  if (!d || !Array.isArray(d.dirty)) return 0;
+  if (!(d.t > 0) || Date.now() - d.t > DRAFT_TTL) { try { localStorage.removeItem(k); } catch {} return 0; }
+  const known = new Set((A.enr || []).map((e) => String(e.id)));
+  let n = 0;
+  d.dirty.forEach((eid) => {
+    eid = String(eid); const v = (d.assign && d.assign[eid]) || "", sv = A.existing[eid] ? A.existing[eid].status : "";
+    if (v === sv || !known.has(eid)) return;
+    if (v) A.assign[eid] = v; else delete A.assign[eid];
+    A.dirty.add(eid); n++;
+  });
+  if (!n) { try { localStorage.removeItem(k); } catch {} }
+  return n;
+}
+function attDraftPurge(now) {
+  now = now || Date.now();
+  try {
+    const dead = [];
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (!k || k.indexOf(DRAFT_PFX) !== 0) continue; const d = store.get(k, null); if (!d || !(d.t > 0) || now - d.t > DRAFT_TTL) dead.push(k); }
+    dead.forEach((k) => localStorage.removeItem(k));
+  } catch {}
+}
+attDraftPurge();
+document.addEventListener("visibilitychange", () => { if (document.hidden) Object.keys(_draftT).forEach(attDraftFlush); });   // ra nền -> ghi nháp ngay
 
 // ---------- FULL-SCREEN SWIPE ----------
 function openSwipeFull(id) {
@@ -2198,11 +2360,11 @@ function commitSwipe(id, card, dir, status) {
   const A = CX[id].att, e = A.enr[A.idx];
   const off = { up: [0, -800], down: [0, 800], left: [-800, 0], right: [800, 0], double: [0, -800] }[dir] || [0, -800];
   card.style.transform = `translate(${off[0]}px,${off[1]}px) rotate(${off[0] * 0.04}deg)`; card.style.opacity = "0";
-  if (status) { A.assign[e.id] = status; A.dirty.add(String(e.id)); haptic(14); toast(`${(e.person || {}).name || ""}: ${status}`, 850); }
+  if (status) { A.assign[e.id] = status; A.dirty.add(String(e.id)); attDraftSave(id); haptic(14); toast(`${(e.person || {}).name || ""}: ${status}`, 850); }
   A.undo.push(A.idx); A.idx++;
   setTimeout(() => renderSwipe(id), 190);
 }
-function swipeUndo(id) { const A = CX[id].att; if (!A.undo.length) return; A.idx = A.undo.pop(); renderSwipe(id); }
+function swipeUndo(id) { const A = CX[id].att; if (!A.undo.length) return; A.idx = A.undo.pop(); attDraftSave(id); renderSwipe(id); }
 window.swipeUndo = swipeUndo;
 function swipeDone(id) {
   const b = $("swipeBody"); if (!b) return;
@@ -2218,43 +2380,64 @@ function attRestart(id) { const A = CX[id].att; A.idx = 0; A.undo = []; renderSw
 window.attRestart = attRestart;
 
 // ---------- COLUMN / REVIEW ----------
+// Các phần đầu (nhẹ): nút nhanh · thống kê · bộ lọc · nút Xác nhận — vẽ lại riêng khi đổi 1 em (không vẽ lại cả danh sách)
+function attHead(id) {
+  const A = CX[id].att, n = A.enr.length;
+  const counts = {}; STATUSES.forEach((s) => (counts[s.v] = 0));
+  A.enr.forEach((e) => { const v = A.assign[e.id]; if (v) counts[v]++; });
+  const done = A.enr.filter((e) => A.assign[e.id]).length, pending = changeCount(A);
+  const stats = `<div class="statgrid" style="margin-bottom:14px">
+    ${statTile(done + "/" + n, "Đã điểm", "gold")}
+    ${STATUSES.slice(0, 5).map((s) => statTile(counts[s.v], s.v, STONE[s.v])).join("")}</div>`;
+  // Bộ lọc theo trạng thái ("" = tất cả · "none" = chưa điểm · tên trạng thái)
+  const F = A.filter || "", shown = A.enr.filter((e) => attMatches(A, e)), open = shown.filter((e) => !A.assign[e.id]).length;
+  const chip = (key, label, k, cls) => `<button class="pick ${F === key ? "on " + cls : ""}" onclick="setAttFilter('${id}','${key}')">${label} <b class="num">${k}</b></button>`;
+  const filter = `<div class="rev-status filterbar">${chip("", "Tất cả", n, "st-quit")}${chip("none", "Chưa điểm", n - done, "st-quit")}${STATUSES.filter((s) => counts[s.v] || F === s.v || s.v !== "Nghỉ Luôn").map((s) => chip(s.v, s.v, counts[s.v] || 0, s.cls)).join("")}</div>
+    <div class="row" style="margin:0 2px 10px;gap:10px"><span class="muted grow" style="font-size:13px">${F ? `Đang hiện ${shown.length}/${n} em` : `${n} em`}</span>
+      <button class="btn ghost sm" style="padding:8px 12px" onclick="applyAllSheet('${id}')">${ic("check", 15)} Đặt tất cả${F ? " (đang hiện)" : ""}</button></div>`;
+  // Còn em chưa điểm -> nút chính "Tất cả có mặt" lên đầu (chỉ đặt cho em CHƯA điểm đang hiện)
+  const allIn = open ? `<button class="btn press allin" onclick="applyAllPresent('${id}')">${ic("check", 19)} Tất cả có mặt <span class="allin-n">· ${open} em chưa điểm</span></button>` : "";
+  const swipeCta = `<button class="btn ${open ? "ghost " : ""}press" style="margin-bottom:14px" onclick="openSwipeFull('${id}')">${ic("swipe", 18)} Quẹt để điểm danh nhanh</button>`;
+  // Đã điểm đủ cả lớp HOẶC vừa Xác nhận thành công -> hiện ô xuất bảng điểm danh (lấp lánh)
+  const allDone = done === n;
+  const exportCta = (allDone || A.justSaved) ? `<button class="export-cta press" onclick="exportSheet('${id}')">
+      <span class="ex-ic">${ic("image", 22)}</span>
+      <div class="grow"><div class="ex-t">Xuất bảng điểm danh</div>
+        <div class="ex-s">${allDone ? `Đã điểm đủ ${n} em` : "Đã lưu lên hệ thống"} · tạo ảnh gửi phụ huynh${pending ? ` · còn ${pending} thay đổi chưa xác nhận` : ""}</div></div>
+      <span class="ex-chev">${ic("chev", 18)}</span><i class="sp s1"></i><i class="sp s2"></i><i class="sp s3"></i></button>` : "";
+  const confirm = `<button class="btn gold" id="confirmBtn" ${A.saving ? "disabled" : ""} onclick="attConfirm('${id}')">${A.saving ? `<span class="spin" style="width:18px;height:18px;margin:0;border-width:2px"></span> Đang gửi…` : `${ic("check", 18)} Xác nhận (${pending})`}</button>`;
+  return { top: allIn + swipeCta + exportCta, stats, filter, confirm };
+}
+function attChip(id, eid, cur) { return `<span class="chip ${cur ? stCls(cur) : "st-none"}" id="achip-${eid}" onclick="event.stopPropagation();attTap('${id}',${eid},1)">${cur ? '<span class="dot"></span>' : ""}${cur || "Chưa điểm"}</span>`; }
+// Chạm 1 lần (em chưa điểm) = Hiện Diện · chạm lại / chạm ô trạng thái / giữ lâu = bảng chọn
+function attRowHTML(id, e) {
+  const A = CX[id].att, p = e.person || {}, cur = A.assign[e.id] || "";
+  return `<button class="rev-row" id="arow-${e.id}" style="width:100%;text-align:left;background:none" onclick="attTap('${id}',${e.id})" onpointerdown="attPress(event,'${id}',${e.id})" onpointermove="attPressMove(event)" onpointerup="attPressEnd()" onpointercancel="attPressEnd()" oncontextmenu="return false">
+      ${avatar(p, { size: 42, r: 12, fs: 14, tappable: true })}
+      <div class="grow"><div class="nm" style="font-weight:600;font-size:${nmFs(p.name || p.full_name, 15)}px">${esc(p.name || p.full_name)}</div><div class="faint" style="font-size:13px">${esc(p.christian_name || "")}</div></div>
+      ${attChip(id, e.id, cur)}
+      <span class="list-arrow">${ic("chev", 18)}</span>
+    </button>`;
+}
 function renderColumn(id) {
   const A = CX[id].att, area = $("attArea");
   if (!area) return;
   if (!A.enr || !A.enr.length) { area.innerHTML = emptyBox(ic("users",44), "Lớp chưa có thiếu nhi đang học"); return; }
-  const counts = {}; STATUSES.forEach((s) => (counts[s.v] = 0));
-  A.enr.forEach((e) => { const v = A.assign[e.id]; if (v) counts[v]++; });
-  const done = A.enr.filter((e) => A.assign[e.id]).length;
-  const summary = `<div class="statgrid" style="margin-bottom:14px">
-    ${statTile(done + "/" + A.enr.length, "Đã điểm", "gold")}
-    ${STATUSES.slice(0, 5).map((s) => statTile(counts[s.v], s.v, STONE[s.v])).join("")}</div>`;
-  // Bộ lọc theo trạng thái ("" = tất cả · "none" = chưa điểm · tên trạng thái)
-  const F = A.filter || "", shown = A.enr.filter((e) => attMatches(A, e));
-  const chip = (key, label, n, cls) => `<button class="pick ${F === key ? "on " + cls : ""}" onclick="setAttFilter('${id}','${key}')">${label} <b class="num">${n}</b></button>`;
-  const filterBar = `<div class="rev-status filterbar">${chip("", "Tất cả", A.enr.length, "st-quit")}${chip("none", "Chưa điểm", A.enr.length - done, "st-quit")}${STATUSES.filter((s) => counts[s.v] || F === s.v || s.v !== "Nghỉ Luôn").map((s) => chip(s.v, s.v, counts[s.v] || 0, s.cls)).join("")}</div>
-    <div class="row" style="margin:0 2px 10px;gap:10px"><span class="muted grow" style="font-size:12.5px">${F ? `Đang hiện ${shown.length}/${A.enr.length} em` : `${A.enr.length} em`}</span>
-      <button class="btn ghost sm" style="padding:8px 12px" onclick="applyAllSheet('${id}')">${ic("check", 15)} Đặt tất cả${F ? " (đang hiện)" : ""}</button></div>`;
-  const rows = shown.map((e) => {
-    const p = e.person || {}, cur = A.assign[e.id] || "";
-    return `<button class="rev-row" style="width:100%;text-align:left;background:none" onclick="statusPicker('${id}',${e.id})">
-      ${avatar(p, { size: 42, r: 12, fs: 14, tappable: true })}
-      <div class="grow"><div class="nm" style="font-weight:600;font-size:${nmFs(p.name || p.full_name, 15)}px">${esc(p.name || p.full_name)}</div><div class="faint" style="font-size:12px">${esc(p.christian_name || "")}</div></div>
-      <span class="chip ${cur ? stCls(cur) : "st-none"}">${cur ? '<span class="dot"></span>' : ""}${cur || "Chưa điểm"}</span>
-      <span class="list-arrow">${ic("chev", 18)}</span>
-    </button>`;
-  }).join("") || `<div class="empty" style="padding:30px 20px;font-size:13.5px">Không có em nào ở trạng thái này</div>`;
-  const swipeCta = `<button class="btn press" style="margin-bottom:14px" onclick="openSwipeFull('${id}')">${ic("swipe", 18)} Quẹt để điểm danh nhanh</button>`;
-  // Đã điểm đủ cả lớp HOẶC vừa Xác nhận thành công -> hiện ô xuất bảng điểm danh (lấp lánh)
-  const allDone = done === A.enr.length, pending = changeCount(A);
-  const exportCta = (allDone || A.justSaved) ? `<button class="export-cta press" onclick="exportSheet('${id}')">
-      <span class="ex-ic">${ic("image", 22)}</span>
-      <div class="grow"><div class="ex-t">Xuất bảng điểm danh</div>
-        <div class="ex-s">${allDone ? `Đã điểm đủ ${A.enr.length} em` : "Đã lưu lên hệ thống"} · tạo ảnh gửi phụ huynh${pending ? ` · còn ${pending} thay đổi chưa xác nhận` : ""}</div></div>
-      <span class="ex-chev">${ic("chev", 18)}</span><i class="sp s1"></i><i class="sp s2"></i><i class="sp s3"></i></button>` : "";
-  area.innerHTML = swipeCta + exportCta + summary + filterBar + `<div class="card divlist" style="overflow:hidden">${rows}</div><div style="height:84px"></div>` +
-    `<div class="confirmbar"><button class="btn gold" id="confirmBtn" ${A.saving ? "disabled" : ""} onclick="attConfirm('${id}')">${A.saving ? `<span class="spin" style="width:18px;height:18px;margin:0;border-width:2px"></span> Đang gửi…` : `${ic("check", 18)} Xác nhận (${changeCount(A)})`}</button></div>`;
+  const h = attHead(id), shown = A.enr.filter((e) => attMatches(A, e));
+  const rows = shown.map((e) => attRowHTML(id, e)).join("") || `<div class="empty" style="padding:30px 20px;font-size:13.5px">Không có em nào ở trạng thái này</div>`;
+  area.innerHTML = `<div id="attTop">${h.top}</div><div id="attStats">${h.stats}</div><div id="attFilter">${h.filter}</div><div class="card divlist" id="attRows" style="overflow:hidden">${rows}</div><div style="height:84px"></div>` +
+    `<div class="confirmbar" id="confirmBar">${h.confirm}</div>`;
 }
 window.renderColumn = renderColumn;
+// Đổi 1 em: chỉ thay ô trạng thái của dòng đó + phần đầu (phần nào không đổi thì giữ nguyên). Dòng vẫn đứng yên dù không còn khớp bộ lọc
+// (tránh danh sách nhảy dưới ngón tay) — lọc lại khi bấm bộ lọc / vẽ lại cả bảng.
+function attPaint(id, eid) {
+  const A = CX[id].att, ch = $("achip-" + eid);
+  if (!ch || !$("attRows")) return renderColumn(id);
+  ch.outerHTML = attChip(id, eid, A.assign[eid] || "");
+  const h = attHead(id);
+  [["attTop", h.top], ["attStats", h.stats], ["attFilter", h.filter], ["confirmBar", h.confirm]].forEach(([k, html]) => { const el = $(k); if (el && el._h !== html) { el.innerHTML = html; el._h = html; } });
+}
 function attMatches(A, e) { const F = A.filter || "", v = A.assign[e.id] || ""; return F === "" ? true : F === "none" ? !v : v === F; }
 function setAttFilter(id, key) { const A = CX[id].att; A.filter = A.filter === key ? "" : key; haptic(8); renderColumn(id); }
 // Đặt 1 trạng thái cho tất cả em đang hiển thị (theo bộ lọc) — chưa gửi, vẫn cần Xác nhận
@@ -2270,57 +2453,175 @@ function applyAllSheet(id) {
 function applyAll(id, v) {
   const A = CX[id].att, shown = A.enr.filter((e) => attMatches(A, e));
   shown.forEach((e) => { A.dirty.add(String(e.id)); if (v) A.assign[e.id] = v; else delete A.assign[e.id]; });
-  A.filter = ""; closeSheet(); haptic();
+  A.filter = ""; closeSheet(); haptic(); attDraftSave(id);
   toast(v ? `Đã đặt ${v} cho ${shown.length} em` : `Đã xóa trạng thái ${shown.length} em`);
   renderColumn(id);
 }
-window.setAttFilter = setAttFilter; window.applyAllSheet = applyAllSheet; window.applyAll = applyAll;
+// "Tất cả có mặt": Hiện Diện cho các em CHƯA điểm đang hiện (em đã điểm giữ nguyên)
+function applyAllPresent(id) {
+  const A = CX[id].att, list = A.enr.filter((e) => attMatches(A, e) && !A.assign[e.id]);
+  if (!list.length) return;
+  list.forEach((e) => { A.dirty.add(String(e.id)); A.assign[e.id] = "Hiện Diện"; });
+  A.filter = ""; haptic(); attDraftSave(id);
+  toast(`Đã đặt Hiện Diện cho ${list.length} em — bấm Xác nhận để gửi`);
+  renderColumn(id);
+}
+window.setAttFilter = setAttFilter; window.applyAllSheet = applyAllSheet; window.applyAll = applyAll; window.applyAllPresent = applyAllPresent;
 
 function statusPicker(id, eid) {
   const A = CX[id].att, e = A.enr.find((x) => x.id === eid) || {}, p = e.person || {}, cur = A.assign[eid] || "";
   const btns = STATUSES.map((s) => `<button class="pickbtn ${cur === s.v ? "on " + s.cls : ""}" onclick="pickStatus('${id}',${eid},'${s.v}')"><span class="sw" style="background:var(${stColorVar(s.v)})"></span>${s.v}</button>`).join("");
   openSheet(`<h3>${esc(p.name || p.full_name || "Điểm danh")}</h3><div class="pickgrid">${btns}<button class="pickbtn clear" onclick="pickStatus('${id}',${eid},'')">Xóa / Chưa điểm</button></div>`);
 }
-function pickStatus(id, eid, v) { const A = CX[id].att; A.dirty.add(String(eid)); haptic(); if (v) A.assign[eid] = v; else delete A.assign[eid]; closeSheet(); renderColumn(id); }
-window.statusPicker = statusPicker; window.pickStatus = pickStatus;
+function attSet(id, eid, v) { const A = CX[id].att; A.dirty.add(String(eid)); if (v) A.assign[eid] = v; else delete A.assign[eid]; attDraftSave(id); attPaint(id, eid); }
+function pickStatus(id, eid, v) { haptic(); closeSheet(); attSet(id, eid, v); }
+let _lp = null;   // giữ lâu 1 dòng (~0.5s) -> mở bảng chọn; click ngay sau đó bị bỏ qua
+function attPress(ev, id, eid) { attPressEnd(); const lp = { x: ev.clientX, y: ev.clientY, fired: false }; lp.t = setTimeout(() => { lp.fired = true; haptic(18); statusPicker(id, eid); }, 480); _lp = lp; }
+function attPressMove(ev) { if (_lp && !_lp.fired && (Math.abs(ev.clientX - _lp.x) > 10 || Math.abs(ev.clientY - _lp.y) > 10)) { clearTimeout(_lp.t); _lp = null; } }
+function attPressEnd() { if (_lp && !_lp.fired) clearTimeout(_lp.t); }
+function attTap(id, eid, pick) {
+  const lp = _lp; _lp = null; if (lp) clearTimeout(lp.t);
+  if (lp && lp.fired) return;
+  if (pick || CX[id].att.assign[eid]) return statusPicker(id, eid);
+  haptic(); attSet(id, eid, "Hiện Diện");
+}
+window.statusPicker = statusPicker; window.pickStatus = pickStatus; window.attTap = attTap; window.attPress = attPress; window.attPressMove = attPressMove; window.attPressEnd = attPressEnd;
 
-async function attConfirm(id) {
-  const A = CX[id].att, jobs = [];
-  const ids = new Set([...Object.keys(A.assign), ...Object.keys(A.existing)]);
+function attJobs(A) {
+  const jobs = [], ids = new Set([...Object.keys(A.assign), ...Object.keys(A.existing)]);
   ids.forEach((eid) => {
     const desired = A.assign[eid], ex = A.existing[eid];
     if (desired && !ex) jobs.push({ type: "create", eid, status: desired });
     else if (desired && ex && desired !== ex.status) jobs.push({ type: "update", eid, id: ex.id, status: desired });
     else if (!desired && ex) jobs.push({ type: "delete", eid, id: ex.id });
   });
+  return jobs;
+}
+// Chạy song song tối đa n việc (việc đầu chạy riêng: token hết hạn chỉ refresh 1 lần). run(j) === false -> không lấy thêm việc mới
+async function attPool(jobs, n, run) {
+  let i = 0, stop = false;
+  const next = async () => { while (!stop && i < jobs.length) { const j = jobs[i++]; if ((await run(j)) === false) stop = true; } };
+  if (jobs.length) { i = 1; if ((await run(jobs[0])) === false) return; }
+  await Promise.all(Array.from({ length: Math.min(n, jobs.length - 1) }, next));
+}
+const attErrText = (e) => { const m = (e && e.message) || ""; return ERR_VN[m] || m || "Lỗi không rõ"; };
+async function attConfirm(id) {
+  const A = CX[id].att;
+  let jobs = attJobs(A);
   if (!jobs.length) return toast("Không có thay đổi để gửi");
   if (A.saving) return;
   A.saving = true;
-  const btn = $("confirmBtn"); if (btn) btn.disabled = true;
+  const spin = `<span class="spin" style="width:18px;height:18px;margin:0;border-width:2px"></span>`;
+  const setBtn = (html) => { const b = $("confirmBtn"); if (b) { b.disabled = true; b.innerHTML = html; } };
+  setBtn(`${spin} Đang gửi…`);
   const before = streakMap(id);                     // chuỗi TRƯỚC khi lưu (từ cache, không chờ mạng)
-  let ok = 0, fail = 0;
-  for (let i = 0; i < jobs.length; i++) {
-    const j = jobs[i]; if (btn) btn.innerHTML = `<span class="spin" style="width:18px;height:18px;margin:0;border-width:2px"></span> Đang gửi ${i + 1}/${jobs.length}`;
+  let ok = 0, done = 0, expired = false; const failed = [];
+  // Có em cần TẠO MỚI -> tải lại điểm danh ngày này trước: lần gửi trước (mất mạng giữa chừng) có thể đã lên web
+  // -> không POST trùng: đã có bản ghi thì đổi sang sửa (PUT) hoặc bỏ nếu đã đúng
+  if (jobs.some((j) => j.type === "create")) {
+    try { const recs = await BGL.attendancesByClass(id, A.date); const fx = {}; (recs || []).forEach((r) => { fx[r.attendable_id] = { id: r.id, status: r.status }; }); mergeFromServer(A, fx); jobs = attJobs(A); }
+    catch (e) { if (e && e.status === 401) expired = true; }
+  }
+  if (!expired) await attPool(jobs, 4, async (j) => {
+    if (expired) return false;
     try {
       if (j.type === "create") { const r = await BGL.createAttendance("Enrollment", +j.eid, A.date, j.status); A.existing[j.eid] = { id: (r && (r.id || (r.data && r.data.id))), status: j.status }; }
       else if (j.type === "update") { await BGL.updateAttendance(j.id, j.status); A.existing[j.eid] = { id: j.id, status: j.status }; }
       else if (j.type === "delete") { await BGL.deleteAttendance(j.id); delete A.existing[j.eid]; }
-      ok++; A.dirty.delete(String(j.eid));   // đã lên web -> không còn là thay đổi chờ gửi
-    } catch (e) { fail++; }
-  }
+      ok++;
+      if ((A.assign[j.eid] || "") === (j.type === "delete" ? "" : j.status)) A.dirty.delete(String(j.eid));   // đã lên web (trừ khi vừa đổi tiếp trong lúc gửi)
+    } catch (e) {
+      if (e && e.status === 401) { expired = true; return false; }   // hết phiên -> dừng ngay, phần còn lại giữ chờ gửi
+      failed.push({ eid: String(j.eid), why: attErrText(e) });
+    } finally { done++; if (!expired) setBtn(`${spin} Đang gửi ${done}/${jobs.length}`); }
+  });
+  A.dirty.forEach((k) => { if ((A.assign[k] || "") === (A.existing[k] ? A.existing[k].status : "")) A.dirty.delete(k); });   // khớp web -> hết chờ gửi
+  const fail = failed.length, left = Math.max(0, jobs.length - ok - fail);
   CX[id].enr = null;
-  A.justSaved = fail === 0; A.saving = false;
-  toast(fail ? `Gửi xong: ${ok} ok, ${fail} lỗi` : `Đã lưu điểm danh ${ok} thiếu nhi ✓`, 2600);
+  A.justSaved = !fail && !expired; A.saving = false; A.failed = fail ? failed : null; A.unsent = !!(fail || expired);
+  clearTimeout(_draftT[id]); delete _draftT[id]; attDraftWrite(id);   // gửi hết -> xoá nháp · còn lỗi / hết phiên -> nháp giữ phần chưa gửi
+  if (expired) toast("Phiên đăng nhập hết hạn — đăng nhập lại để gửi tiếp", 3600);   // sheet đăng nhập lại do sự kiện bgl-session-expired lo
+  else if (!fail) toast(ok ? `Đã lưu điểm danh ${ok} thiếu nhi ✓` : "Điểm danh đã có sẵn trên web ✓", 2600);
   renderColumn(id);
+  if (fail && !expired) attFailSheet(id);
   // vá cache điểm danh cả năm cho ngày này (nếu đang tải thì chờ tối đa 4s / hoặc vá khi tải xong) -> chuỗi -> thông báo
   const day = {}; Object.keys(A.existing).forEach((eid) => { if (A.existing[eid]) day[eid] = A.existing[eid].status; });
   const C = CX[id]; C.attPatch = { date: A.date, day };
   try { if (C.attAllP) await Promise.race([C.attAllP, new Promise((r) => setTimeout(r, 4000))]); } catch {}
   if (C.attAll && C.attPatch) { C.attAll.by[A.date] = day; C.attPatch = null; }
-  notifyConfirm(id, A, ok, fail, before, streakMap(id));
+  notifyConfirm(id, A, ok, fail + left, before, streakMap(id));
+  paintAskCard(id);
   if ($("stuList")) paintStreaks(id);
 }
-window.attConfirm = attConfirm;
+// Gửi lỗi một phần: liệt kê em chưa gửi được (tên + lý do) + Gửi lại
+function attFailSheet(id) {
+  const A = CX[id].att, list = A.failed || []; if (!list.length) return;
+  const nm = (eid) => { const e = (A.enr || []).find((x) => String(x.id) === String(eid)), p = (e && e.person) || {}; return p.name || p.full_name || `Thiếu nhi #${eid}`; };
+  openSheet(`<h3>Chưa gửi được ${list.length} em</h3>
+    <p class="muted" style="margin:-6px 2px 14px;font-size:14px;line-height:1.45">Các em dưới đây vẫn được giữ là thay đổi chưa gửi (đã lưu trên máy). Kiểm tra mạng rồi bấm Gửi lại.</p>
+    <div class="card divlist" style="max-height:40vh;overflow:auto;margin-bottom:14px">${list.map((f) => `<div class="kv"><span class="k" style="color:var(--ink);font-weight:600">${esc(nm(f.eid))}</span><span class="v faint" style="font-weight:500;font-size:13px">${esc(f.why)}</span></div>`).join("")}</div>
+    <button class="btn" onclick="closeSheet();attConfirm('${id}')">${ic("refresh", 18)} Gửi lại</button>`);
+}
+// Có mạng lại / quay lại app mà còn thay đổi gửi lỗi -> mời gửi ngay (tối đa 1 lần / phút / lớp)
+function attOfferPending() {
+  if (!S.user || $("sheet") || $("fs")) return;
+  const ids = Object.keys(CX).filter((k) => { const A = CX[k] && CX[k].att; return A && A.loaded && A.unsent && !A.saving && changeCount(A) > 0; });
+  if (!ids.length) return;
+  const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+  const id = parts[0] === "class" && ids.includes(parts[1]) ? parts[1] : ids[0], A = CX[id].att, n = changeCount(A), c = CX[id].info || {};
+  if (A.offerAt && Date.now() - A.offerAt < 60000) return;
+  A.offerAt = Date.now();
+  openSheet(`<h3>Còn ${n} thay đổi chưa gửi</h3>
+    <p class="muted" style="margin:-6px 2px 16px;font-size:14px;line-height:1.45">Điểm danh <b style="color:var(--ink)">${esc(c.name || "lớp")}</b> · ${weekdayVN(A.date)}, ${fmtDate(A.date)} chưa lên hệ thống.</p>
+    <div class="pickgrid">
+      <button class="pickbtn clear" onclick="closeSheet()">Để sau</button>
+      <button class="pickbtn" style="grid-column:span 2;justify-content:center;color:var(--brand-2)" onclick="closeSheet();attConfirm('${id}')">${ic("upload", 18)} Gửi ngay</button>
+    </div>`);
+}
+window.addEventListener("online", () => setTimeout(attOfferPending, 800));
+try { const P = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App; if (P) { const h = P.addListener("resume", () => setTimeout(attOfferPending, 600)); if (h && h.catch) h.catch(() => {}); } } catch {}
+window.attConfirm = attConfirm; window.attFailSheet = attFailSheet;
+
+// ---------- CẦN HỎI THĂM: em vắng (Vắng Lễ / Không Phép) ở ≥2 Chúa Nhật có điểm gần nhất — từ cache cả năm ----------
+const ASK_ST = ["Vắng Lễ", "Không Phép"];
+function askList(id) {
+  const C = CX[id] || {}, all = C.attAll, enr = C.att && C.att.enr;
+  if (!all || !enr) return [];
+  const today = toISO(new Date()), days = Object.keys(all.by).filter((d) => d <= today && new Date(d + "T00:00:00").getDay() === 0).sort().reverse();
+  const out = [];
+  enr.forEach((e) => {
+    let n = 0, last = "";
+    for (const d of days) { const st = (all.by[d] || {})[e.id]; if (!st) continue; if (!ASK_ST.includes(st)) break; n++; if (!last) last = d; }
+    if (n >= 2) out.push({ e, n, last });
+  });
+  return out.sort((a, b) => b.n - a.n);
+}
+// "Đã liên hệ" nhớ theo tuần (Chúa Nhật đầu tuần) trên máy
+const askKey = (id) => `bgl-asked-${(S.user && S.user.id) || "x"}-${id}`;
+function askDone(id) { const a = store.get(askKey(id), null); return a && a.w === todaySunday() && Array.isArray(a.ids) ? a.ids.map(String) : []; }
+function askToggle(id, eid, on) {
+  const ids = new Set(askDone(id)); if (on) ids.add(String(eid)); else ids.delete(String(eid));
+  store.set(askKey(id), { w: todaySunday(), ids: [...ids] });
+  const r = $("ask-" + eid); if (r) r.classList.toggle("done", !!on);
+}
+function paintAskCard(id) {
+  const box = $("askCard"); if (!box) return;
+  const list = askList(id); if (!list.length) { box.innerHTML = ""; return; }
+  const done = askDone(id);
+  box.innerHTML = `<div class="card pad askcard" style="margin-bottom:14px">
+    <div class="eyebrow" style="margin:0 2px 2px;display:flex;align-items:center;gap:6px">${ic("phone", 15)} Cần hỏi thăm · ${list.length} em</div>
+    <div class="faint" style="font-size:13px;margin:0 2px 4px">Vắng Lễ / Không Phép từ 2 Chúa Nhật gần nhất</div>
+    <div class="divlist">${list.map(({ e, n, last }) => {
+      const p = e.person || {}, pd = (p.data && p.data.parents_info) || {}, nm = p.name || p.full_name || "", on = done.includes(String(e.id));
+      return `<div class="ask-row ${on ? "done" : ""}" id="ask-${e.id}">
+        <div class="grow"><div class="nm" style="font-weight:600">${esc(nm)}</div>
+          <div class="muted" style="font-size:13px">Vắng ${n} Chúa Nhật liên tiếp · gần nhất ${fmtDate(last).slice(0, 5)}</div>
+          <div class="muted ask-ph"><span>Cha ${phoneChip(pd.father_phone || p.phone, nm)}</span><span>Mẹ ${phoneChip(pd.mother_phone, nm)}</span></div></div>
+        <label class="check ask-ok"><input type="checkbox" ${on ? "checked" : ""} onchange="askToggle('${id}',${e.id},this.checked)"><span class="box">${ic("check", 14)}</span><span>Đã liên hệ</span></label>
+      </div>`;
+    }).join("")}</div></div>`;
+}
+window.askToggle = askToggle;
 // Chuỗi hiện tại của từng em trong lớp từ cache (null nếu chưa có dữ liệu cả năm)
 function streakMap(id) {
   if (!CX[id] || !CX[id].attAll) return null;
@@ -2587,11 +2888,45 @@ async function boot() {
   startPolling();
 }
 // Sau đăng nhập vào thẳng lớp mình dạy (nếu có)
-const landingHash = () => (S.myClassId ? `#/class/${S.myClassId}/thieunhi` : "#/home");
+// Chúa Nhật -> vào thẳng tab Điểm danh của lớp mình
+const landingHash = () => (S.myClassId ? `#/class/${S.myClassId}/${isSundayToday() ? "diemdanh" : "thieunhi"}` : "#/home");
 
 // ---------- Auto đồng bộ với web (~8s) — merge an toàn, không ghi đè ----------
 let _poll = null;
-function startPolling() { if (_poll) return; _poll = setInterval(pollTick, 8000); }
+// 8s khi đang mở tab Điểm danh · 30s ở tab khác · app ở nền -> dừng · máy báo mất mạng -> bỏ lượt
+// lỗi liên tiếp -> giãn 16 → 32 → 60s · 401 (hết phiên) -> dừng hẳn tới khi đăng nhập lại
+let _pollOn = false, _pollBusy = false, _pollFails = 0, _appBg = false;
+function pollDelay() {
+  const p = location.hash.replace(/^#\/?/, "").split("/"), base = p[0] === "class" && p[2] === "diemdanh" ? 8000 : 30000;
+  return _pollFails ? Math.max(base, Math.min(60000, 8000 * 2 ** _pollFails)) : base;
+}
+function pollNext(ms) { clearTimeout(_poll); _poll = null; if (_pollOn && !_appBg && !_pollBusy) _poll = setTimeout(pollRun, ms == null ? pollDelay() : ms); }
+async function pollRun() {
+  _poll = null; if (!_pollOn || _appBg) return;
+  _pollBusy = true; try { await pollTick(); } finally { _pollBusy = false; }
+  pollNext();
+}
+function startPolling() { if (_pollOn) return; _pollOn = true; _pollFails = 0; pollNext(); }
+function stopPolling() { _pollOn = false; clearTimeout(_poll); _poll = null; }
+// quay lại app -> đồng bộ ngay (đã dừng vì 401 mà không có bảng đăng nhập lại -> chạy lại) + kiểm tra cập nhật ngầm
+function pollBg(bg) {
+  if (_appBg === !!bg) return; _appBg = !!bg;
+  if (_appBg) { clearTimeout(_poll); _poll = null; return; }
+  if (!_pollOn && S.user && !$("relogin")) startPolling();
+  pollNext(1200); updAuto();
+}
+document.addEventListener("visibilitychange", () => pollBg(document.hidden));
+window.addEventListener("hashchange", () => { if (_pollOn) pollNext(); });   // vào / rời tab Điểm danh -> đổi nhịp ngay
+window.addEventListener("online", () => { netDot(); pollNext(800); updAuto(); });
+window.addEventListener("offline", () => netDot());
+// Chấm "Mất kết nối" trên thanh tiêu đề: >= 2 request lỗi mạng liên tiếp (api.js phát "bgl-net") hoặc máy báo offline; có phản hồi là tắt
+let _netFails = 0;
+function netDot() {
+  const on = _netFails >= 2 || navigator.onLine === false, el = $("netDot");
+  if (!on) { if (el) el.remove(); return; }
+  if (!el) document.body.insertAdjacentHTML("beforeend", `<div id="netDot" role="status" class="chip st-unexcused" style="position:fixed;z-index:45;top:calc(env(safe-area-inset-top) + 3px);left:50%;transform:translateX(-50%);pointer-events:none;padding:2px 9px;gap:5px;font-size:11px;font-weight:700"><span class="dot"></span>Mất kết nối</div>`);
+}
+window.addEventListener("bgl-net", (e) => { _netFails = e && e.detail && e.detail.ok ? 0 : _netFails + 1; netDot(); });
 // Giữ các ô người dùng đang sửa (dirty), phần còn lại đồng bộ theo web
 function mergeFromServer(A, freshEx) {
   Object.keys(A.assign).forEach((k) => { if (!A.dirty.has(k)) delete A.assign[k]; });
@@ -2600,18 +2935,18 @@ function mergeFromServer(A, freshEx) {
 }
 async function pollTick() {
   try {
-    if (!S.user || document.hidden) return;
+    if (!S.user || document.hidden || navigator.onLine === false) return;
     if ($("sheet") || $("fs")) return;               // đang thao tác -> bỏ qua
     const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
     if (parts[0] !== "class" || !CX[parts[1]]) return;
     const id = parts[1], tab = parts[2] || "thieunhi", t = NAV;
     if (tab === "thieunhi") {
-      const fresh = await BGL.classroomEnrollments(id);
+      const fresh = await BGL.classroomEnrollments(id); _pollFails = 0;
       if (stale(t)) return;                                  // người dùng đã sang màn khác trong lúc tải
       if (JSON.stringify(fresh) !== JSON.stringify(CX[id].enr)) { CX[id].enr = fresh; if ($("tabBody")) tabStudents(id); loadClassAttendance(id, true).then(() => paintStreaks(id)); }
     } else if (tab === "diemdanh") {
       const A = CX[id].att; if (!A || !A.loaded || A.saving) return;      // đang gửi -> không đồng bộ chen ngang
-      const recs = await BGL.attendancesByClass(id, A.date);
+      const recs = await BGL.attendancesByClass(id, A.date); _pollFails = 0;
       if (A.saving || stale(t)) return;
       const freshEx = {}; recs.forEach((r) => { freshEx[r.attendable_id] = { id: r.id, status: r.status }; });
       const same = Object.keys(freshEx).length === Object.keys(A.existing).length && Object.keys(freshEx).every((k) => A.existing[k] && A.existing[k].status === freshEx[k].status && A.existing[k].id === freshEx[k].id);
@@ -2629,7 +2964,10 @@ async function pollTick() {
       if (!conflicts.length) { if (changed) toast(`Đã đồng bộ ${changed} thay đổi từ web`, 1800); return; }   // êm, không hỏi
       if (!(A.syncSnooze && Date.now() < A.syncSnooze)) syncPrompt(id, conflicts);
     }
-  } catch {}
+  } catch (e) {
+    if (e && e.status === 401) stopPolling();                 // hết phiên: dừng, đăng nhập lại sẽ chạy lại
+    else if (e && typeof e.status === "number") _pollFails = Math.min(_pollFails + 1, 3);   // lỗi mạng / máy chủ -> giãn nhịp
+  }
 }
 function syncPrompt(id, conflicts) {
   const A = CX[id].att, names = (conflicts || []).map((k) => { const e = (A.enr || []).find((x) => String(x.id) === String(k)); const p = (e && e.person) || {}; return p.name || p.full_name || ""; }).filter(Boolean);
@@ -2641,9 +2979,61 @@ function syncPrompt(id, conflicts) {
       <button class="pickbtn" style="grid-column:span 2;justify-content:center;color:var(--brand-2)" onclick="syncReload('${id}')">${ic("check", 18)} Tải lại ngay</button>
     </div>`);
 }
-function syncReload(id) { const A = CX[id].att; A.assign = {}; Object.keys(A.existing).forEach((k) => (A.assign[k] = A.existing[k].status)); A.dirty.clear(); A.syncSnooze = 0; closeSheet(); if ($("attArea")) renderColumn(id); toast("Đã tải lại dữ liệu mới nhất"); }
+function syncReload(id) { const A = CX[id].att; A.assign = {}; Object.keys(A.existing).forEach((k) => (A.assign[k] = A.existing[k].status)); A.dirty.clear(); A.syncSnooze = 0; attDraftSave(id); closeSheet(); if ($("attArea")) renderColumn(id); toast("Đã tải lại dữ liệu mới nhất"); }
 function syncLater(id) { const A = CX[id].att; A.syncSnooze = Date.now() + 120000; closeSheet(); if ($("attArea")) renderColumn(id); }
 window.syncReload = syncReload; window.syncLater = syncLater;
+
+// ---------- Phiên đăng nhập hết hạn giữa chừng ----------
+// api.js: refresh token hỏng -> BGL.onAuthLost: đăng nhập lại NGẦM bằng tài khoản đã lưu (chỉ khi đang trong phiên,
+// không tự đăng nhập lúc mở app / sau khi bấm Đăng xuất) -> vẫn hỏng thì phát "bgl-session-expired" -> bảng đăng nhập lại
+BGL.onAuthLost = async () => {
+  if (!S.user) return false;
+  const c = await loadCred(); if (!c || !c.u || !c.p) return false;
+  let user; try { user = await BGL.login(c.u, c.p); } catch (e) { if (e && e.status === 0) throw e; return false; }   // mất mạng -> ném lại (chưa chắc hết phiên)
+  if (user && user.id != null && S.user && S.user.id != null && String(user.id) !== String(S.user.id)) { try { await BGL.logout(); } catch {} return false; }   // tài khoản đã lưu là người khác
+  return true;
+};
+// Bảng đăng nhập lại: GIỮ nguyên mọi thứ đang có trong bộ nhớ (điểm danh chưa Xác nhận, tab đã tải…)
+window.addEventListener("bgl-session-expired", () => { if (!S.user) return; stopPolling(); reloginSheet(); });
+function reloginSheet() {
+  if ($("relogin")) return;
+  const cred = store.get("bgl-cred", null);
+  LOGIN_SAVED_U = (cred && cred.u) || (S.user && S.user.username) || LOGIN_SAVED_U || "";
+  openSheet(`<div id="relogin"><h3>Phiên đăng nhập đã hết hạn</h3>
+    <p class="muted" style="margin:-6px 2px 14px;font-size:13.5px;line-height:1.5">Đăng nhập lại để tiếp tục. Những gì đang làm dở (điểm danh chưa Xác nhận…) vẫn được giữ nguyên.</p>
+    <div class="field" style="margin-bottom:14px"><label>Số điện thoại</label>
+      <input id="ru" class="input num" inputmode="tel" autocomplete="username" placeholder="0867007***" value="${esc(maskPhone(LOGIN_SAVED_U))}"/></div>
+    <div class="field"><label>Mật khẩu</label>
+      <input id="rp" class="input" type="password" autocomplete="current-password" placeholder="••••••"/></div>
+    <div id="rmsg"></div>
+    <button class="btn" id="rBtn" style="margin-top:16px" onclick="reloginGo()">Đăng nhập lại</button>
+    <button class="btn ghost" style="margin-top:10px" onclick="doLogout()">Đăng xuất</button></div>`);
+  const u = $("ru"), p = $("rp");
+  if (u) u.addEventListener("focus", (e) => { if (LOGIN_SAVED_U && e.target.value === maskPhone(LOGIN_SAVED_U)) setTimeout(() => e.target.select(), 0); });
+  if (p) p.addEventListener("keydown", (e) => { if (e.key === "Enter") reloginGo(); });
+}
+async function reloginGo() {
+  const b = $("rBtn"), err = (m) => { const a = $("rmsg"); if (a) { a.className = "authmsg err"; a.style.marginTop = "12px"; a.textContent = m; } };
+  let u = (($("ru") || {}).value || "").trim(); const p = ($("rp") || {}).value || "";
+  if (LOGIN_SAVED_U && u === maskPhone(LOGIN_SAVED_U)) u = LOGIN_SAVED_U;   // ô đang hiện bản che -> dùng SĐT thật
+  if (!u || !p) return err("Nhập đủ số điện thoại và mật khẩu.");
+  if (!b || b.disabled) return; b.disabled = true; b.innerHTML = `<span class="btnspin"></span> Đang đăng nhập…`;
+  try {
+    const user = await BGL.login(u, p);
+    if (store.get("bgl-cred", null)) await saveCred(u, p);   // đã chọn lưu tài khoản -> cập nhật mật khẩu mới
+    closeSheet();
+    if (user && user.id != null && S.user && String(user.id) !== String(S.user.id)) {   // đăng nhập tài khoản KHÁC -> bỏ dữ liệu của tài khoản cũ
+      resetAccountData(); S.user = user; await boot();
+      const want = landingHash(); if (location.hash !== want) go(want); else render();
+      return;
+    }
+    toast("Đã đăng nhập lại ✓"); startPolling();
+  } catch (e) {
+    if (b.isConnected) { b.disabled = false; b.textContent = "Đăng nhập lại"; }
+    err(e && e.status === 0 ? (e.message || "Không kết nối được máy chủ") : trErr(e && e.message));
+  }
+}
+window.reloginGo = reloginGo;
 async function init() {
   loading("home");
   try {
@@ -2656,14 +3046,18 @@ async function init() {
   if (window.Capacitor?.Plugins?.App) {
     window.Capacitor.Plugins.App.addListener("backButton", () => {
       if ($("sheet")) return closeSheet();          // ưu tiên đóng sheet đang mở (kể cả khi đang quẹt)
+      if ($("updBlock")) return window.Capacitor.Plugins.App.exitApp();   // màn bắt buộc cập nhật: Back = thoát app
       if ($("fs")) { const h = $("fsHost"); if (h) h.innerHTML = ""; if (S._swipeId) renderColumn(S._swipeId); S._swipeId = null; return; }
       if (location.hash && !["#/home", "#/", ""].includes(location.hash)) history.back();
       else window.Capacitor.Plugins.App.exitApp();
     });
+    // app ở nền -> dừng đồng bộ; quay lại -> chạy ngay + tự kiểm tra cập nhật (tối đa 1 lần / 24 giờ)
+    try { const h = window.Capacitor.Plugins.App.addListener("appStateChange", (s) => pollBg(!(s && s.isActive))); if (h && h.catch) h.catch(() => {}); } catch {}
     // quay lại app (vd. bấm Huỷ ở trình cài đặt) -> nhắc cài bản cập nhật đã tải
     if (_upd()) try { const A = window.Capacitor.Plugins.App; [A.addListener("resume", () => updOnResume()), A.addListener("appStateChange", (s) => { if (s && s.isActive) updOnResume(); })].forEach((h) => { if (h && h.catch) h.catch(() => {}); }); } catch {}
   }
-  setTimeout(() => { updStartup().catch(() => {}); }, 1200);   // báo đã cập nhật · dọn APK cũ (không chặn app)
+  netDot();
+  setTimeout(() => { updStartup().catch(() => {}).then(() => updAuto()); }, 1200);   // báo đã cập nhật · dọn APK cũ · kiểm tra bản mới ngầm (không chặn app)
 }
 init();
 

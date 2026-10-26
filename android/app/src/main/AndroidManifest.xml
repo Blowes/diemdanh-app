@@ -3,8 +3,12 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
+    <!-- Không sao lưu lên Google Drive: ảnh thiếu nhi + tài khoản chỉ nằm trong app (chuyển máy trực tiếp vẫn mang theo;
+         hoặc dùng Tôi → Tiện ích → Sao lưu & xuất dữ liệu). Android 12+: dataExtractionRules, Android 6–11: fullBackupContent -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
